@@ -74,7 +74,7 @@ class AppRefBuilder:
         return fst.itr == 'APPREF' and snd.itr == fst.itr
 
     def validate(self, fst: MemOp, snd: MemOp):
-        print(f"fst {fst}, snd {snd}")
+        #print(f"fst {fst}, snd {snd}")
         assert fst.put and snd.put
         assert fst.op == 'STOR' and snd.op == fst.op
         assert self.root_itr(fst, snd) or self.appref_itr(fst, snd)
@@ -127,7 +127,7 @@ def parse_log_file(file_content: str) -> (list[MemOp], list[Redex], list[AppRef]
                 redex_bldr.add(fst.put, snd.put, appref_bldr.app_ref)
     
         if fst.op == 'POP':
-            print(f"fst.got {fst.got} snd.got {snd.got}")
+            #print(f"fst.got {fst.got} snd.got {snd.got}")
             redex = Redex(fst.got, snd.got)
             if redex.is_appref():
                 appref_bldr.new(snd.loc)
@@ -161,6 +161,6 @@ if __name__ == "__main__":
         print(f"No memory operations loaded")
         sys.exit(1)
 
-    print(f"ops: {len(mem_ops)}, app_refs: {len(app_refs)}, redexes: {len(redexes)}")
+    print(f"ops: {len(mem_ops)}, app_refs: {len(app_refs), AppRef.count_all(app_refs)}, redexes: {len(redexes)}")
     #for op in mem_ops:
     #print(op)

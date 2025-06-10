@@ -17,9 +17,12 @@ from hvm import AppRef, Node, NodeTerm, MemOp, Term
 pygame.font.init()
 
 # Constants for display
+TITLE_FONT_SIZE = 14
 FONT_SIZE = 14
-HEADER_FONT_SIZE = 14
-BORDER_WIDTH = 2
+
+BORDER_THICKNESS = 2
+HEADER_BORDER_HEIGHT = 1
+
 # Column character widths - now defines number of characters per column
 COLUMN_CHARS = [4, 3, 3, 4]  # mem, tag, lab, loc (LAB is now 3 chars as requested)
 
@@ -36,7 +39,7 @@ LIGHT_CYAN = (224, 255, 255)    # Very light cyan
 YELLOW = (255, 255, 0)          # Bright yellow
 ORANGE = (255, 165, 0)          # Orange for headers
 
-def get_font(size: int = FONT_SIZE, bold: bool = True) -> pygame.font.Font:
+def get_font(size: int, bold: bool = True) -> pygame.font.Font:
     """Get a monospace font for consistent character spacing with better readability."""
     # Try multiple monospace fonts in order of preference
     font_names = [
@@ -77,40 +80,53 @@ def get_font_metrics(font: pygame.font.Font) -> dict:
         'half_line': line_height // 2
     }
 
-def get_table_metrics(font: pygame.font.Font) -> dict:
-    """Get comprehensive table layout metrics based on font characteristics."""
+def get_title_font() -> pygame.font.Font:
+    return get_font(TITLE_FONT_SIZE, bold=True)
+
+def get_content_font() -> pygame.font.Font:
+    return get_font(FONT_SIZE, bold=True)
+
+def get_table_metrics(font: pygame.font.Font = get_content_font(),
+                      title_font: pygame.font.Font = get_title_font()) -> dict:
     metrics = get_font_metrics(font)
-    header_font = get_font(HEADER_FONT_SIZE, bold=True)
-    header_metrics = get_font_metrics(header_font)
+    title_metrics = get_font_metrics(title_font)
+
+    col_spacing = {
+        'margin': BORDER_THICKNESS + metrics['half_char'],     # Left/right margins
+        'mem_term': metrics['char_width'],                 # Between MEM and Term
+        'intra_term': metrics['half_char']                 # Intra-term spacing 
+    }
     
-    # Column spacing - includes ALL horizontal spacing from inner edge of border to inner edge of border
-    # Using font metrics for semantic spacing choices, accounting for border width
-    col_spacing = [
-        BORDER_WIDTH + metrics['half_char'],     # [0] Left border inner edge to MEM (border + spacing)
-        metrics['char_width'],                   # [1] MEM to TAG (standard inter-column)
-        metrics['half_char'],                   # [2] TAG to LAB (standard inter-column)
-        metrics['half_char'],                   # [3] LAB to LOC (standard inter-column)  
-        metrics['half_char'] + BORDER_WIDTH      # [4] LOC to right border inner edge (spacing + border)
+    col_spacing_by_index = [
+        col_spacing['margin'],                       # left margin
+        col_spacing['mem_term'],                     # Between MEM and Term
+        col_spacing['intra_term'],                   # Between TAG and LAB
+        col_spacing['intra_term'],                   # Between LAB and LOC
+        col_spacing['margin']                        # right margin
     ]
+
+    row_spacing = {
+        'title_to_header': metrics['quarter_line'],      # Between title and header
+        'header_to_line':  metrics['quarter_line'],      # Between header and line
+        'margin':          metrics['quarter_line'],      # Above & below row content
+        'intra_row':       2                             # Between rows
+    }
     
-    # Row spacing - vertical spacing with mixed reference points
-    # Note: [0] is not used since header positioning is title-relative, not border-relative
-    row_spacing = [
-        metrics['quarter_line'],                 # [0] unused - header positioned relative to title
-        metrics['line_height'],                  # [1] header_height: full line for header text
-        metrics['quarter_line'],                 # [2] header_to_line: subtle separator spacing
-        metrics['quarter_line'],                 # [3] line_to_data: subtle separator spacing
-        metrics['line_height'],                  # [4] between_rows: full line between data rows
-        metrics['quarter_line'] + BORDER_WIDTH   # [5] bottom_margin + bottom border
-    ]
-    
-    # Title-relative positioning metrics
-    title_to_header_spacing = metrics['quarter_line'] + metrics['descent']
-    title_height = header_metrics['line_height']
-    title_extends_above = title_height // 2
-    
+    # title / 2 + space + header + space + line
+    table_header_height = (
+        title_metrics['line_height'] // 2 + row_spacing['title_to_header'] +
+        metrics['line_height'] + row_spacing['header_to_line'] + 
+        HEADER_BORDER_HEIGHT
+    )
+
+    term_width = (
+        sum(chars * metrics['char_width'] for chars in COLUMN_CHARS[1:]) +
+        col_spacing['intra_term'] * 2
+    )
+
     return {
-        # Spacing arrays using semantic font metrics
+        'col_spacing_by_index': col_spacing_by_index,
+
         'col_spacing': col_spacing,
         'row_spacing': row_spacing,
         
@@ -118,32 +134,29 @@ def get_table_metrics(font: pygame.font.Font) -> dict:
         'column_chars': COLUMN_CHARS,
         'column_widths': [chars * metrics['char_width'] for chars in COLUMN_CHARS],
         
-        # Title positioning metrics
-        'title_to_header_spacing': title_to_header_spacing,
-        'title_height': title_height,
-        'title_extends_above': title_extends_above,
+        'table_header_height': table_header_height,
+        'top_row_y': table_header_height + row_spacing['margin'],
+        
+        'term_width': term_width,
         
         # Derived totals for convenience
-        'total_content_width': sum(chars * metrics['char_width'] for chars in COLUMN_CHARS) + 
-                              sum(col_spacing),
+        'width': sum(chars * metrics['char_width'] for chars in COLUMN_CHARS) +
+                     sum(col_spacing_by_index),
         
         # Include font metrics for reference
-        'font_metrics': metrics,
-        'header_font_metrics': header_metrics,
+        'metrics': metrics,
+        'title_metrics': title_metrics,
     }
 
 def get_char_width(font: pygame.font.Font) -> int:
-    """Get the width of a single character in the monospace font."""
     return font.size("X")[0]
 
 def calculate_column_widths(font: pygame.font.Font) -> List[int]:
-    """Calculate pixel widths for each column based on character count."""
     char_width = get_char_width(font)
     return [char_count * char_width for char_count in COLUMN_CHARS]
 
 def draw_text_with_outline(surface: pygame.Surface, text: str, font: pygame.font.Font, 
                           x: int, y: int, text_color: tuple, outline_color: tuple = BLACK, outline_width: int = 1):
-    """Draw text with an outline for better readability."""
     # Draw outline by rendering text at offset positions
     for dx in range(-outline_width, outline_width + 1):
         for dy in range(-outline_width, outline_width + 1):
@@ -201,41 +214,21 @@ def calculate_appref_dimensions(app_ref: AppRef) -> Tuple[int, int]:
     operations = collect_memory_operations(app_ref)
     
     # Get table metrics for layout calculations
-    font = get_font(FONT_SIZE)
-    table = get_table_metrics(font)
+    table = get_table_metrics()
     
     # Width: all content + all spacing (already calculated in total_content_width)
-    width = table['total_content_width']
+    width = table['width']
     
-    # Height: calculated from title positioning + header + data rows using table metrics
     height = (
-        table['title_extends_above'] +  # title extends above border
-        table['title_to_header_spacing'] +  # title to header spacing
-        table['row_spacing'][1] +  # header_height
-        table['row_spacing'][2] +  # header_to_line
-        table['row_spacing'][3] +  # line_to_data
-        len(operations) * table['row_spacing'][4] +  # data rows
-        table['row_spacing'][5]    # bottom_margin
+        table['table_header_height'] + table['row_spacing']['margin'] * 2 + 
+        len(operations) * (table['metrics']['line_height'] + table['row_spacing']['intra_row']) -
+        table['row_spacing']['intra_row'] + BORDER_THICKNESS
     )
-    
-    # Ensure minimum width for title
-    title_font = get_font(HEADER_FONT_SIZE)
     
     return width, height
 
 def draw_appref(surface: pygame.Surface, app_ref: AppRef, x: int, y: int, title: str = "AppRef",
                 color_scheme: str = "terminal"):
-    """
-    Draw an AppRef on the given surface at the specified position.
-    
-    Args:
-        surface: Pygame surface to draw on
-        app_ref: AppRef object to display
-        x, y: Top-left position to draw at
-        title: Title text to display in the border
-        color_scheme: "terminal", "high_contrast", or "soft"
-    """
-    # Choose color scheme
     if color_scheme == "bright terminal":
         text_color = BRIGHT_GREEN
         header_color = YELLOW
@@ -255,29 +248,27 @@ def draw_appref(surface: pygame.Surface, app_ref: AppRef, x: int, y: int, title:
     operations = collect_memory_operations(app_ref)
     width, height = calculate_appref_dimensions(app_ref)
     
-    # Fonts - use bold for headers
-    font = get_font(FONT_SIZE)
-    header_font = get_font(HEADER_FONT_SIZE, bold=True)
-    bold_font = get_font(FONT_SIZE, bold=True)
+    title_font = get_title_font()
+    font = get_content_font()
     
     # Get unified table metrics
-    table = get_table_metrics(font)
+    table = get_table_metrics()
     
     # Draw background
     pygame.draw.rect(surface, BLACK, (x, y, width, height))
     
     # Draw border (will be clipped by title)
     border_rect = pygame.Rect(x, y, width, height)
-    pygame.draw.rect(surface, border_color, border_rect, BORDER_WIDTH)
+    pygame.draw.rect(surface, border_color, border_rect, BORDER_THICKNESS)
     
     # Draw title with background to clip the border
-    title_surface = header_font.render(title, True, header_color)
+    title_surface = title_font.render(title, True, header_color)
     title_width = title_surface.get_width()
     title_x = x + (width - title_width) // 2
-    title_y = y - header_font.get_height() // 2
+    title_y = y - title_font.get_height() // 2
     
     # Draw black background behind title to "clip" the border
-    title_bg_rect = pygame.Rect(title_x - 5, title_y, title_width + 10, header_font.get_height())
+    title_bg_rect = pygame.Rect(title_x - 5, title_y, title_width + 10, title_font.get_height())
     pygame.draw.rect(surface, BLACK, title_bg_rect)
     
     # Draw the title text
@@ -286,32 +277,32 @@ def draw_appref(surface: pygame.Surface, app_ref: AppRef, x: int, y: int, title:
     # Column headers with bold font positioned relative to title using table metrics
     headers = ["MEM", "TAG", "LAB", "LOC"]
     # Position header text relative to title using centralized spacing values
-    title_bottom = title_y + table['title_height']
-    header_y = title_bottom + table['title_to_header_spacing']
-    current_x = x + table['col_spacing'][0]  # left border spacing
+    title_bottom = title_y + table['title_metrics']['line_height']
+    header_y = title_bottom + table['row_spacing']['title_to_header']
+    current_x = x + table['col_spacing']['margin']  # left border spacing
     
     for i, header in enumerate(headers):
-        header_surface = bold_font.render(header, True, header_color)
+        header_surface = font.render(header, True, header_color)
         surface.blit(header_surface, (current_x, header_y))
         current_x += table['column_widths'][i]
         if i < len(headers) - 1:  # Add inter-column spacing if not the last column
-            current_x += table['col_spacing'][i + 1]
+            current_x += table['col_spacing_by_index'][i + 1]
     
     # Draw horizontal line under headers
-    line_y = header_y + table['row_spacing'][1] + table['row_spacing'][2]  # header_height + header_to_line
-    line_left = x + BORDER_WIDTH + table['font_metrics']['half_char']  # same as left content spacing
-    line_right = x + width - BORDER_WIDTH - table['font_metrics']['half_char']  # same as right content spacing
+    line_y = header_y + table['metrics']['line_height'] + table['row_spacing']['header_to_line']
+    line_left = x + table['col_spacing']['margin']
+    line_right = x + width - table['col_spacing']['margin']
     pygame.draw.line(surface, line_color, (line_left, line_y), (line_right, line_y), 1)
     
     # Draw data rows with dynamic positioning
-    row_y = line_y + table['row_spacing'][3]  # line_to_data spacing
+    row_y = line_y + HEADER_BORDER_HEIGHT + table['row_spacing']['margin'] 
+    #row_y = table['top_row_y']
     for mem_loc, tag, lab, term_loc in operations:
-        current_x = x + table['col_spacing'][0]  # left border spacing
+        current_x = x + table['col_spacing']['margin'] 
         
-        # Format values - adjust LAB to 3 characters as requested
         values = [
-            f"{mem_loc:04d}", #format_hex_value(mem_loc, 4),  # MEM: 4 chars
-            tag[:3],                       # TAG: truncate to 3 chars if needed
+            f"{mem_loc:04d}",              # MEM: 4 chars
+            tag[:3],                       # TAG: 3 chars
             f"{lab:03d}",                  # LAB: 3 chars zero-padded
             f"{term_loc:04d}"              # LOC: 4 chars zero-padded
         ]
@@ -322,9 +313,9 @@ def draw_appref(surface: pygame.Surface, app_ref: AppRef, x: int, y: int, title:
             surface.blit(value_surface, (current_x, row_y))
             current_x += table['column_widths'][i]
             if i < len(values) - 1:  # Add inter-column spacing if not the last column
-                current_x += table['col_spacing'][i + 1]
+                current_x += table['col_spacing_by_index'][i + 1]
         
-        row_y += table['row_spacing'][4]  # between_rows spacing
+        row_y += table['metrics']['line_height'] + table['row_spacing']['intra_row'] 
 
 def draw_multiple_apprefs(surface: pygame.Surface, app_refs: List[Tuple[AppRef, str]], 
                          start_x: int = 10, start_y: int = 10, spacing: int = 20,
@@ -347,22 +338,6 @@ def draw_multiple_apprefs(surface: pygame.Surface, app_refs: List[Tuple[AppRef, 
         current_y += height + spacing
 
 def make_example_apprefs():
-    """
-    # Create some example data (you would replace this with your actual AppRef data)
-    example_term1 = Term("VAR", 0x1000, 0)
-    example_term2 = Term("APP", 0x2000, 1)
-    
-    example_memop1 = MemOp(1, 0, "main", "LOAD", 0, None, example_term1, 0x1000)
-    example_memop2 = MemOp(2, 0, "main", "STOR", 0, example_term2, None, 0x2000)
-    
-    example_node_term1 = NodeTerm(example_term1, loads=[example_memop1])
-    example_node_term2 = NodeTerm(example_term2, stores=[example_memop2])
-    
-    example_app_ref = AppRef(1)
-    example_node = Node(0x1000, example_app_ref, example_node_term1, example_node_term2)
-    example_app_ref.nodes = [example_node]
-    """
-
     app_refs = []
 
     # 3 @ 14
