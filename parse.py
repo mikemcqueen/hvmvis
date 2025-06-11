@@ -16,7 +16,7 @@ def get_memop(seq: int, parts: list[str]) -> MemOp:
         # STOR: put term only
         put_tag = parts[5]
         put_loc = int(parts[6])
-        put = Term(tag=put_tag, loc=put_loc)
+        put = Term(put_tag, 0, put_loc)
         got = None
         loc = int(parts[7])
             
@@ -24,7 +24,7 @@ def get_memop(seq: int, parts: list[str]) -> MemOp:
         # POP: got term only
         got_tag = parts[5]
         got_loc = int(parts[6])
-        got = Term(tag=got_tag, loc=got_loc)
+        got = Term(got_tag, 0, got_loc)
         put = None
         loc = int(parts[7])
             
@@ -32,11 +32,11 @@ def get_memop(seq: int, parts: list[str]) -> MemOp:
         # EXCH format: counter,thread,itr_type,EXCH,lvl,got_tag,got_loc,put_tag,put_loc,loc
         got_tag = parts[5]
         got_loc = int(parts[6])
-        got = Term(tag=got_tag, loc=got_loc)
+        got = Term(got_tag, 0, got_loc)
         
         put_tag = parts[7]
         put_loc = int(parts[8])
-        put = Term(tag=put_tag, loc=put_loc)
+        put = Term(put_tag, 0, put_loc)
         
         loc = int(parts[9])
             
@@ -88,7 +88,7 @@ class AppRefBuilder:
         self.validate(fst, snd)
         if not self.app_ref:
             assert self.root_itr(fst, snd) and fst.put.tag == 'REF'
-            self.app_ref = AppRef(fst.loc)
+            self.app_ref = AppRef(fst.put.loc)
 
         neg = NodeTerm(fst.put)
         neg.stores.append(fst)
@@ -130,7 +130,7 @@ def parse_log_file(file_content: str) -> (list[MemOp], list[Redex], list[AppRef]
             #print(f"fst.got {fst.got} snd.got {snd.got}")
             redex = Redex(fst.got, snd.got)
             if redex.is_appref():
-                appref_bldr.new(snd.loc)
+                appref_bldr.new(snd.got.loc)
 
     return (mem_ops, redex_bldr.redexes, appref_bldr.app_refs)
 
@@ -148,6 +148,9 @@ def parse_log_from_file(filename: str): #-> List[MemOp]:
 
     return ([], [], [])
 
+def sum_nodes(app_refs: list[AppRef]) -> int:
+    return sum(len(a.nodes) for a in app_refs)
+
 # Example usage:
 if __name__ == "__main__":
     # Check if filename provided as command line argument
@@ -161,6 +164,8 @@ if __name__ == "__main__":
         print(f"No memory operations loaded")
         sys.exit(1)
 
-    print(f"ops: {len(mem_ops)}, app_refs: {len(app_refs), AppRef.count_all(app_refs)}, redexes: {len(redexes)}")
+    print(f"mem_ops: {len(mem_ops)} app_refs: {len(app_refs)} nodes: {sum_nodes(app_refs)} redexes: {len(redexes)}")
+    print(f"{[a.ref for a in app_refs]}")
+    print(f"apprefs < 7: {sum(1 for a in app_refs if a.ref < 7)}")
     #for op in mem_ops:
     #print(op)

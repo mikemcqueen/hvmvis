@@ -2,7 +2,9 @@ import pygame
 import time
 from typing import List, Tuple, Optional
 from dataclasses import dataclass
+
 from claude_appref9 import *
+#from claude_position import *
 
 # Get the absolute path to the directory one level up (the root)
 import os
@@ -11,6 +13,19 @@ root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 sys.path.insert(0, root_dir)
 
 from hvm import AppRef, Node, NodeTerm, MemOp, Term
+
+T = TypeVar('T')
+
+@dataclass
+class Rect(Generic[T]):
+    left: int
+    top: int
+    width: int
+    height: int
+    obj: T
+
+AppRefRect = Rect[AppRef]
+TermRect = Rect[Term]
 
 # Animation constants
 durations: dict[str, float] = {
@@ -53,15 +68,10 @@ class AnimationState:
     alpha: float = 255
     color: Tuple[int, int, int] = None
 
+# TODODODODODODDO dumb so much dumb here in these methods
 def get_row_position(app_ref: AppRef, mem_loc: int, table: dict, start_y: int) -> Optional[int]:
     operations = collect_memory_operations(app_ref)
-    
     # Find the row index for this memory location
-    # TODODODODODODDO dumb
-    # TODODODODODODDO
-    # TODODODODODODDO dumb
-    # TODODODODODODDO
-    # TODODODODODODDO dumb
     for i, (op_mem_loc, _, _, _) in enumerate(operations):
         if op_mem_loc == mem_loc:
             row_y = (
@@ -72,24 +82,24 @@ def get_row_position(app_ref: AppRef, mem_loc: int, table: dict, start_y: int) -
     
     return None
 
-def find_appref_and_position(app_refs_with_positions: List[Tuple], mem_loc: int,
+def find_appref_and_position(app_ref_rects: list[AppRefRect], mem_loc: int,
                              table: dict = get_table_metrics()) -> Optional[Tuple]:
-
-    for app_ref, start_x, start_y, title in app_refs_with_positions:
-        row_y = get_row_position(app_ref, mem_loc, table, start_y)
+    # wut
+    for app_ref_rect in app_ref_rects:
+        row_y = get_row_position(app_ref_rect.obj, mem_loc, table, app_ref_rect.top)
         if row_y is not None:
-            return (app_ref, start_x, start_y, row_y)
+            return (app_ref_rect.obj, app_ref_rect.left, app_ref_rect.top, row_y)
     
     return None
 
-def get_term_data_at_location(app_refs_with_positions: List[Tuple], mem_loc: int) -> Optional[Tuple[str, str, str]]:
+def get_term_data_at_location(app_ref_rects: list[AppRefRect], mem_loc: int) -> Optional[Tuple[str, str, str]]:
     """Get the term data (tag, lab, loc) at a specific memory location across all AppRefs"""
-    for app_ref, _, _, _ in app_refs_with_positions:
-        operations = collect_memory_operations(app_ref)
+    for app_ref_rect in app_ref_rects:
+        operations = collect_memory_operations(app_ref_rect.obj)
         
-        for op_mem_loc, tag, lab, term_loc in operations:
+        for op_mem_loc, tag, lab, loc in operations:
             if op_mem_loc == mem_loc:
-                return (tag[:3], f"{lab:03d}", f"{term_loc:04d}")
+                return (tag[:3], f"{lab:03d}", f"{loc:04d}")
     
     return None
 
@@ -213,13 +223,13 @@ def draw_animated_term(surface: pygame.Surface, anim: AnimationState,
         
         surface.blit(text_surface, (draw_x, draw_y))
 
-def move_term_animated(app_refs_with_positions: List[Tuple], from_loc: int, to_loc: int,
+def move_term_animated(app_ref_rects: list[AppRefRect], from_loc: int, to_loc: int,
                        table: dict = get_table_metrics(),
                        color_scheme: str = "dim terminal") -> AnimationState:
 
     # Find source and target positions
-    from_info = find_appref_and_position(app_refs_with_positions, from_loc)
-    to_info = find_appref_and_position(app_refs_with_positions, to_loc)
+    from_info = find_appref_and_position(app_ref_rects, from_loc)
+    to_info = find_appref_and_position(app_ref_rects, to_loc)
     
     if from_info is None:
         raise ValueError(f"No term found at memory location {from_loc}")
@@ -227,7 +237,7 @@ def move_term_animated(app_refs_with_positions: List[Tuple], from_loc: int, to_l
         raise ValueError(f"Target memory location {to_loc} not found")
     
     # Get term data at the source location
-    term_data = get_term_data_at_location(app_refs_with_positions, from_loc)
+    term_data = get_term_data_at_location(app_ref_rects, from_loc)
     if term_data is None:
         raise ValueError(f"No term data found at memory location {from_loc}")
     
@@ -244,13 +254,13 @@ def move_term_animated(app_refs_with_positions: List[Tuple], from_loc: int, to_l
         current_y=from_info[3],  # Start row Y
         target_x=from_info[1] + table['col_spacing']['mem_term'],   # Will be updated during animation
         target_y=to_info[3],     # Target row Y
-        color=DIM_GREEN if "dim" in color_scheme else BRIGHT_GREEN
+        color=DIM_GREEN if "DIM" in color_scheme else BRIGHT_GREEN
     )
     
     return anim
 
-def draw_appref_with_animation(surface: pygame.Surface, app_ref: AppRef, x: int, y: int, 
-                              title: str = "AppRef", color_scheme: str = "dim terminal",
+def draw_appref_with_animation(surface: pygame.Surface, app_ref_rect: AppRefRect,
+                              color_scheme: str = "dim terminal",
                               animations: List[AnimationState] = None):
     """
     Enhanced version of draw_appref that can handle animated terms.
@@ -259,33 +269,32 @@ def draw_appref_with_animation(surface: pygame.Surface, app_ref: AppRef, x: int,
         animations = []
     
     # First draw the normal AppRef
-    draw_appref(surface, app_ref, x, y, title, color_scheme)
+    draw_appref(surface, app_ref_rect.obj, app_ref_rect.left, app_ref_rect.top, color_scheme)
     
     # Then draw any animated terms on top
     for anim in animations:
         if anim.phase != 'complete':
-            draw_animated_term(surface, anim, x)
+            draw_animated_term(surface, anim, app_ref_rect.left)
 
 # Simple event loop integration example
-def create_animated_example(app_refs):
+def create_animated_example(screen, app_refs):
     """
     Example showing how to integrate the animation system with your existing display.
     """
-    pygame.init()
+    #pygame.init()
     
-    screen = pygame.display.set_mode((1280, 1024))
-    pygame.display.set_caption("AppRef Display with Animation")
     clock = pygame.time.Clock()
     
     # Track active animations - you need this list in your main loop
     active_animations = []
     
     # Setup AppRef positions for the animation system
-    app_refs_info = []
+    app_ref_rects = []
     y_pos = 50
     for app_ref in app_refs:
-        app_refs_info.append((app_ref, 50, y_pos, ref_name(app_ref.ref)))
-        y_pos += calculate_appref_dimensions(app_ref)[1] + 20
+        (width, height) = calculate_appref_dimensions(app_ref)
+        app_ref_rects.append(AppRefRect(20, y_pos, width, height, app_ref))
+        y_pos += height + 20
     
     running = True
     while running:
@@ -297,7 +306,7 @@ def create_animated_example(app_refs):
             elif event.type == pygame.KEYDOWN:
                 if event.key == pygame.K_SPACE and app_refs:
                     try:
-                        anim = move(14, 50, app_refs_info)
+                        anim = move(14, 50, app_ref_rects)
                         active_animations.append(anim)
                     except ValueError as e:
                         print(f"Animation error: {e}")
@@ -308,13 +317,13 @@ def create_animated_example(app_refs):
                            if not update_animation_state(anim, current_time)]
         
         # Draw AppRefs with animations
-        for i, (app_ref, x, y, title) in enumerate(app_refs_info):
-            draw_appref_with_animation(screen, app_ref, x, y, title, "dim terminal", active_animations)
+        for app_ref_rect in app_ref_rects:
+            draw_appref_with_animation(screen, app_ref_rect, "dim terminal", active_animations)
         
         pygame.display.flip()
         clock.tick(30)
     
     pygame.quit()
 
-def move(from_loc: int, to_loc: int, app_refs_with_positions: List[Tuple]) -> AnimationState:
-    return move_term_animated(app_refs_with_positions, from_loc, to_loc)
+def move(from_loc: int, to_loc: int, app_ref_rects: list[AppRefRect]) -> AnimationState:
+    return move_term_animated(app_ref_rects, from_loc, to_loc)

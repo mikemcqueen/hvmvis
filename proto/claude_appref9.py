@@ -1,15 +1,14 @@
 import pygame
-from typing import List, Tuple
 
-from claude_move2 import *
+from dataclasses import dataclass
+from typing import List, Tuple, Generic, TypeVar
+#from claude_move2 import *
 
 # Get the absolute path to the directory one level up (the root)
 import os
 import sys
 root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 sys.path.insert(0, root_dir)
-
-
 
 from hvm import AppRef, Node, NodeTerm, MemOp, Term
 
@@ -20,11 +19,8 @@ pygame.font.init()
 TITLE_FONT_SIZE = 14
 FONT_SIZE = 14
 
-BORDER_THICKNESS = 2
-HEADER_BORDER_HEIGHT = 1
-
-# Column character widths - now defines number of characters per column
-COLUMN_CHARS = [4, 3, 3, 4]  # mem, tag, lab, loc (LAB is now 3 chars as requested)
+# Column character widths
+COLUMN_CHARS = [4, 3, 3, 4]  # mem, tag, lab, loc
 
 # Colors
 DIM_GREEN = (0, 160, 0)
@@ -35,7 +31,6 @@ GRAY = (128, 128, 128)
 LIGHT_GRAY = (64, 64, 64)
 # Better contrast colors
 BRIGHT_GREEN = (0, 255, 0)      # Classic terminal green
-LIGHT_CYAN = (224, 255, 255)    # Very light cyan
 YELLOW = (255, 255, 0)          # Bright yellow
 ORANGE = (255, 165, 0)          # Orange for headers
 
@@ -86,13 +81,16 @@ def get_title_font() -> pygame.font.Font:
 def get_content_font() -> pygame.font.Font:
     return get_font(FONT_SIZE, bold=True)
 
+"""
 def get_table_metrics(font: pygame.font.Font = get_content_font(),
                       title_font: pygame.font.Font = get_title_font()) -> dict:
     metrics = get_font_metrics(font)
     title_metrics = get_font_metrics(title_font)
 
+    border_thickness = 2
+
     col_spacing = {
-        'margin': BORDER_THICKNESS + metrics['half_char'],     # Left/right margins
+        'margin': border_thickness + metrics['half_char'],     # Left/right margins
         'mem_term': metrics['char_width'],                 # Between MEM and Term
         'intra_term': metrics['half_char']                 # Intra-term spacing 
     }
@@ -115,8 +113,7 @@ def get_table_metrics(font: pygame.font.Font = get_content_font(),
     # title / 2 + space + header + space + line
     table_header_height = (
         title_metrics['line_height'] // 2 + row_spacing['title_to_header'] +
-        metrics['line_height'] + row_spacing['header_to_line'] + 
-        HEADER_BORDER_HEIGHT
+        metrics['line_height'] + row_spacing['header_to_line'] + 1
     )
 
     term_width = (
@@ -124,29 +121,37 @@ def get_table_metrics(font: pygame.font.Font = get_content_font(),
         col_spacing['intra_term'] * 2
     )
 
+    layout = {
+        'left_margin': 20,
+        'top_margin':  50,
+        'vert_spacing': 20,
+        'horz_spacing': term_width + metrics['char_width'] * 2
+    }
+
     return {
         'col_spacing_by_index': col_spacing_by_index,
-
         'col_spacing': col_spacing,
         'row_spacing': row_spacing,
         
-        # Column definitions
         'column_chars': COLUMN_CHARS,
         'column_widths': [chars * metrics['char_width'] for chars in COLUMN_CHARS],
         
         'table_header_height': table_header_height,
+        'table_border_thickness': border_thickness,
+
         'top_row_y': table_header_height + row_spacing['margin'],
         
         'term_width': term_width,
         
-        # Derived totals for convenience
+        'layout': layout,
+
         'width': sum(chars * metrics['char_width'] for chars in COLUMN_CHARS) +
                      sum(col_spacing_by_index),
-        
-        # Include font metrics for reference
+
         'metrics': metrics,
         'title_metrics': title_metrics,
     }
+"""
 
 def get_char_width(font: pygame.font.Font) -> int:
     return font.size("X")[0]
@@ -203,31 +208,10 @@ def collect_memory_operations(app_ref: AppRef) -> List[Tuple[int, str, int, int]
                 lab_val = store_op.put.lab if store_op.put.lab is not None else 0
                 operations.append((store_op.loc, store_op.put.tag, lab_val, store_op.put.loc))
     
-    # Remove duplicates and sort by memory location
-    #   unique_ops = list(set(operations))
-    #    unique_ops.sort(key=lambda x: x[0])
-    
     return operations
 
-def calculate_appref_dimensions(app_ref: AppRef) -> Tuple[int, int]:
-    """Calculate the required dimensions for displaying an AppRef."""
-    operations = collect_memory_operations(app_ref)
-    
-    # Get table metrics for layout calculations
-    table = get_table_metrics()
-    
-    # Width: all content + all spacing (already calculated in total_content_width)
-    width = table['width']
-    
-    height = (
-        table['table_header_height'] + table['row_spacing']['margin'] * 2 + 
-        len(operations) * (table['metrics']['line_height'] + table['row_spacing']['intra_row']) -
-        table['row_spacing']['intra_row'] + BORDER_THICKNESS
-    )
-    
-    return width, height
-
-def draw_appref(surface: pygame.Surface, app_ref: AppRef, x: int, y: int, title: str = "AppRef",
+"""
+def draw_appref(surface: pygame.Surface, app_ref: AppRef, x: int, y: int,
                 color_scheme: str = "terminal"):
     if color_scheme == "bright terminal":
         text_color = BRIGHT_GREEN
@@ -259,10 +243,10 @@ def draw_appref(surface: pygame.Surface, app_ref: AppRef, x: int, y: int, title:
     
     # Draw border (will be clipped by title)
     border_rect = pygame.Rect(x, y, width, height)
-    pygame.draw.rect(surface, border_color, border_rect, BORDER_THICKNESS)
+    pygame.draw.rect(surface, border_color, border_rect, table['table_border_thickness'])
     
     # Draw title with background to clip the border
-    title_surface = title_font.render(title, True, header_color)
+    title_surface = title_font.render(ref_name(app_ref.ref), True, header_color)
     title_width = title_surface.get_width()
     title_x = x + (width - title_width) // 2
     title_y = y - title_font.get_height() // 2
@@ -295,18 +279,16 @@ def draw_appref(surface: pygame.Surface, app_ref: AppRef, x: int, y: int, title:
     pygame.draw.line(surface, line_color, (line_left, line_y), (line_right, line_y), 1)
     
     # Draw data rows with dynamic positioning
-    row_y = line_y + HEADER_BORDER_HEIGHT + table['row_spacing']['margin'] 
+    row_y = line_y + 1 + table['row_spacing']['margin'] 
     #row_y = table['top_row_y']
     for mem_loc, tag, lab, term_loc in operations:
         current_x = x + table['col_spacing']['margin'] 
-        
         values = [
-            f"{mem_loc:04d}",              # MEM: 4 chars
-            tag[:3],                       # TAG: 3 chars
-            f"{lab:03d}",                  # LAB: 3 chars zero-padded
-            f"{term_loc:04d}"              # LOC: 4 chars zero-padded
+            f"{mem_loc:04d}",
+            tag[:3],
+            f"{lab:03d}",
+            f"{term_loc:04d}"
         ]
-        
         # Draw each column
         for i, value in enumerate(values):
             value_surface = font.render(value, True, text_color)
@@ -316,39 +298,22 @@ def draw_appref(surface: pygame.Surface, app_ref: AppRef, x: int, y: int, title:
                 current_x += table['col_spacing_by_index'][i + 1]
         
         row_y += table['metrics']['line_height'] + table['row_spacing']['intra_row'] 
-
-def draw_multiple_apprefs(surface: pygame.Surface, app_refs: List[Tuple[AppRef, str]], 
-                         start_x: int = 10, start_y: int = 10, spacing: int = 20,
-                         color_scheme: str = "terminal"):
-    """
-    Draw multiple AppRefs on the surface with automatic positioning.
-    
-    Args:
-        surface: Pygame surface to draw on
-        app_refs: List of (AppRef, title) tuples
-        start_x, start_y: Starting position
-        spacing: Vertical spacing between AppRefs
-        color_scheme: "terminal", "high_contrast", or "soft"
-    """
-    current_y = start_y
-    
-    for app_ref, title in app_refs:
-        draw_appref(surface, app_ref, start_x, current_y, title, color_scheme)
-        _, height = calculate_appref_dimensions(app_ref)
-        current_y += height + spacing
+"""
 
 def make_example_apprefs():
     app_refs = []
 
     # 3 @ 14
-    terms = [Term("MAT", 0, 16),
-             Term("VAR", 0, 16),
-             Term("SUB", 0, 0),
-             Term("SUB", 0, 18),
-             Term("REF", 0, 4),
-             Term("SUB", 0, 20),
-             Term("REF", 0, 5),
-             Term("SUB", 0, 0)]
+    terms = [
+        Term("MAT", 0, 16),
+        Term("VAR", 0, 16),
+        Term("SUB", 0, 0),
+        Term("SUB", 0, 18),
+        Term("REF", 0, 4),
+        Term("SUB", 0, 20),
+        Term("REF", 0, 5),
+        Term("SUB", 0, 0)
+    ]
 
     ref = AppRef(3)
     for i in range(0, len(terms), 2):
@@ -362,33 +327,34 @@ def make_example_apprefs():
     app_refs.append(ref)
 
     # 5 @ 24
-    terms = [Term("DUP", 0, 26),
-             Term("LAM", 0, 28),
-             Term("SUB", 0, 0),
-             Term("SUB", 0, 0),
-             Term("DUP", 0, 30),
-             Term("VAR", 0, 49),
-             Term("SUB", 0, 0),
-             Term("SUB", 0, 0),
-             Term("VAR", 0, 31),
-             Term("SUB", 0, 0),
-             Term("VAR", 0, 33),
-             Term("SUB", 0, 0),
-             Term("VAR", 0, 27),
-             Term("APP", 0, 38),
-             Term("VAR", 0, 35),
-             Term("SUB", 0, 0),
-             Term("VAR", 0, 30),
-             Term("SUB", 0, 0),
-             Term("VAR", 0, 26),
-             Term("APP", 0, 44),
-             Term("VAR", 0, 41),
-             Term("SUB", 0, 0),
-             Term("VAR", 0, 45),
-             Term("APP", 0, 48),
-             Term("VAR", 0, 39),
-             Term("SUB", 0, 0)]
-
+    terms = [
+        Term("DUP", 0, 26),
+        Term("LAM", 0, 28),
+        Term("SUB", 0, 0),
+        Term("SUB", 0, 0),
+        Term("DUP", 0, 30),
+        Term("VAR", 0, 49),
+        Term("SUB", 0, 0),
+        Term("SUB", 0, 0),
+        Term("VAR", 0, 31),
+        Term("SUB", 0, 0),
+        Term("VAR", 0, 33),
+        Term("SUB", 0, 0),
+        Term("VAR", 0, 27),
+        Term("APP", 0, 38),
+        Term("VAR", 0, 35),
+        Term("SUB", 0, 0),
+        Term("VAR", 0, 30),
+        Term("SUB", 0, 0),
+        Term("VAR", 0, 26),
+        Term("APP", 0, 44),
+        Term("VAR", 0, 41),
+        Term("SUB", 0, 0),
+        Term("VAR", 0, 45),
+        Term("APP", 0, 48),
+        Term("VAR", 0, 39),
+        Term("SUB", 0, 0)
+    ]
 
     ref = AppRef(5)
     for i in range(0, len(terms), 2):
@@ -402,18 +368,20 @@ def make_example_apprefs():
     app_refs.append(ref)
 
     # 6 @ 50
-    terms = [Term("SUB", 0, 0),
-             Term("LAM", 0, 52),
-             Term("SUB", 0, 0),
-             Term("LAM", 0, 54),
-             Term("APP", 0, 56),
-             Term("LAM", 0, 60),
-             Term("VAR", 0, 50),
-             Term("APP", 0, 58),
-             Term("VAR", 0, 52),
-             Term("SUB", 0, 0),
-             Term("ERA", 0, 0),
-             Term("VAR", 0, 59)]
+    terms = [
+        Term("SUB", 0, 0),
+        Term("LAM", 0, 52),
+        Term("SUB", 0, 0),
+        Term("LAM", 0, 54),
+        Term("APP", 0, 56),
+        Term("LAM", 0, 60),
+        Term("VAR", 0, 50),
+        Term("APP", 0, 58),
+        Term("VAR", 0, 52),
+        Term("SUB", 0, 0),
+        Term("ERA", 0, 0),
+        Term("VAR", 0, 59)
+    ]
     
     ref = AppRef(6)
     for i in range(0, len(terms), 2):
@@ -445,15 +413,13 @@ def ref_name(ref: int):
 
 # Example usage function
 def create_example_display():
-    """
-    Create an example pygame window displaying AppRefs.
-    This is a demonstration of how to use the display functions.
-    """
     pygame.init()
-    
+    screen = pygame.display.set_mode((1280, 950), 0)
+    pygame.display.set_caption("HVM Vis")
+
     app_refs = make_example_apprefs()
 
-    create_animated_example(app_refs)
+    create_animated_example(screen, app_refs)
 
     """
     # Create display

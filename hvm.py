@@ -4,8 +4,8 @@ from typing import NamedTuple, Optional
 
 class Term(NamedTuple):
     tag: str
+    lab: int
     loc: int
-    lab: Optional[int] = None
 
 class MemOp(NamedTuple):
     seq: int
@@ -68,7 +68,7 @@ class Node:
     #parent: Optional[Node]
     #child: Optional[Node]
 
-@dataclass
+@dataclass(eq=False)
 class AppRef:
     ref: int
     #app: Term
