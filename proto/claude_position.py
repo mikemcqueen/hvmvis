@@ -188,6 +188,24 @@ def add_new_app_ref(manager, loc: int) -> int:
     manager.add_appref(new_ref, "dim terminal")
     return loc + 2
 
+def event_handler(event, mgr):
+    if event.type == pygame.QUIT:
+        return False
+    elif event.type == pygame.KEYDOWN:
+        if event.key == pygame.K_SPACE:
+            loc = 0 # add_new_app_ref(mgr, loc)
+        #elif event.key == pygame.K_r:
+        #    mgr.reposition_all()
+        elif event.key == pygame.K_d:
+            mgr.toggle_show_dependencies()
+        elif event.key == pygame.K_q:
+            return False
+    elif event.type == pygame.MOUSEBUTTONDOWN:
+        rect = mgr.get_rect_at_position(*event.pos)
+        if rect:
+            rect.selected = not rect.selected
+    return True
+
 def event_loop(app_refs: list[AppRef] = make_example_apprefs()):
     pygame.init()
     screen = pygame.display.set_mode((1850, 1024))
@@ -204,19 +222,8 @@ def event_loop(app_refs: list[AppRef] = make_example_apprefs()):
     running = True
     while running:
         for event in pygame.event.get():
-            if event.type == pygame.QUIT:
+            if not event_handler(event, manager):
                 running = False
-            elif event.type == pygame.KEYDOWN:
-                if event.key == pygame.K_SPACE:
-                    loc = add_new_app_ref(manager, loc)
-                elif event.key == pygame.K_r:
-                    manager.reposition_all()
-                elif event.key == pygame.K_q:
-                    running = False
-            elif event.type == pygame.MOUSEBUTTONDOWN:
-                clicked_rect = manager.get_appref_at_position(*event.pos)
-                if clicked_rect:
-                    manager.remove_appref(clicked_rect.app_ref)
         
         screen.fill(BLACK)
         manager.draw_all(screen)

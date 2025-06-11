@@ -7,7 +7,8 @@ class Term(NamedTuple):
     lab: int
     loc: int
 
-class MemOp(NamedTuple):
+@dataclass(eq=False)
+class MemOp:
     seq: int
     tid: int
     itr: str
@@ -17,7 +18,7 @@ class MemOp(NamedTuple):
     got: Optional[Term]
     loc: int
     
-    def __str__(self) -> str:
+    def __repr__(self) -> str:
         if self.op == 'EXCH':
             return f"{self.tid},{self.itr},{self.op},{self.lvl},{self.got.tag},{self.got.loc},{self.put.tag},{self.put.loc},{self.loc}"
         elif self.op == 'POP' or self.op == 'LOAD':
@@ -25,7 +26,7 @@ class MemOp(NamedTuple):
         else: # self.op == 'STOR'
             return f"{self.tid},{self.itr},{self.op},{self.lvl},{self.put.tag},{self.put.loc},{self.loc}"
 
-@dataclass
+@dataclass(eq=False)
 class NodeTerm:
     class Kind(Enum):
         Var = 1
@@ -47,7 +48,7 @@ class NodeTerm:
     @property
     def loc(self): return self.term.loc
 
-@dataclass
+@dataclass(eq=False)
 class Redex:
     neg: Term
     pos: Term
@@ -58,7 +59,7 @@ class Redex:
     def is_appref(self):
         return self.neg.tag == 'APP' and self.pos.tag == 'REF'
 
-@dataclass
+@dataclass(eq=False)
 class Node:
     loc: int
     neg: NodeTerm
@@ -71,8 +72,23 @@ class Node:
 @dataclass(eq=False)
 class AppRef:
     ref: int
-    #app: Term
-    #lam: Term
-    # --or--
-    #app_lam : Redex
+    redex: Optional[Redex] = None
     nodes: list[Node] = field(default_factory=list)
+
+    @property
+    def id(self): return (self.ref, self.nodes[0].neg.stores[0].loc)
+
+    @property
+    def first_loc(self): return self.nodes[0].neg.stores[0].loc
+
+    @property
+    def last_loc(self):
+        # if this is a MAT node, the actual size might (eventually) be two more
+        # than what expand_ref gives us.
+        # it's a bit of a hack here because I don't know which MemOps have been
+        # "processed" by the visualizer yet. Assuming unprocessed for now but
+        # i'll have to return to this later.
+        # TODO: FIXME
+        mat = self.nodes[0].neg.tag == 'MAT'
+        last = self.nodes[-1].pos.stores[0].loc
+        return last if not mat else last + 2

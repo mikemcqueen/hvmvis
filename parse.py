@@ -10,7 +10,7 @@ sys.path.insert(0, root_dir)
 
 from claude_position import event_loop
 
-def get_memop(seq: int, parts: list[str]) -> MemOp:
+def make_memop(seq: int, parts: list[str]) -> MemOp:
     # Extract basic fields (ignoring counter at index 0)
     tid = int(parts[1])
     itr = parts[2]
@@ -58,50 +58,69 @@ def get_memop(seq: int, parts: list[str]) -> MemOp:
         loc=loc
     )
 
-def redex_lookup(neg: Term) -> Redex:
-    return None
+def is_root_itr(mem_op: MemOp):
+    return mem_op.itr == '______'
+
+def is_root_or_appref_itr(mem_op: MemOp):
+    return is_root_itr(mem_op) or mem_op.itr == 'APPREF'
+
+def is_redex_push(mem_op: MemOp) -> bool:
+    # Arbitrary limit here will bite me eventually
+    # only works with TPC = 1. more threads means node address may be larger.
+    # should add "PUSH" op type
+    return (
+        mem_op.op == 'STOR' and
+        mem_op.loc > 100000
+    )
+
+def is_node_store(mem_op: MemOp) -> bool:
+    return (
+        mem_op.op == 'STOR' and
+        is_root_or_appref_itr(mem_op) and
+        not is_redex_push(mem_op)
+    )
 
 @dataclass(eq=False)
 class RedexBuilder:
     redexes: list[Redex] = field(default_factory=list)
+    redex_map: dict[tuple[Term, Term], Redex] = field(default_factory=dict)
 
-    def add(self, neg: Term, pos: Term, app_ref: AppRef):
+    def push(self, neg: Term, pos: Term, app_ref: AppRef):
+        assert neg and pos
         redex = Redex(neg, pos, app_ref)
         self.redexes.append(redex)
+        #print(f"push {redex.neg} {redex.pos}")
+        self.redex_map[(neg, pos)] = redex
 
+    def pop(self, neg: Term, pos: Term) -> Redex:
+        assert neg and pos
+        return self.redex_map[(neg, pos)]
+        
 @dataclass(eq=False)
 class AppRefBuilder:
     app_refs: list[AppRef] = field(default_factory=list)
     app_ref: Optional[AppRef] = None
 
-    def root_itr(self, fst: MemOp, snd: MemOp):
-        return fst.itr == '______' and snd.itr == fst.itr
-
-    def appref_itr(self, fst: MemOp, snd: MemOp):
-        return fst.itr == 'APPREF' and snd.itr == fst.itr
-
     def validate(self, fst: MemOp, snd: MemOp):
-        #print(f"fst {fst}, snd {snd}")
-        assert fst.put and snd.put
-        assert fst.op == 'STOR' and snd.op == fst.op
-        assert self.root_itr(fst, snd) or self.appref_itr(fst, snd)
+        return is_node_store(fst) and is_node_store(snd)
             
     def done(self):
         if self.app_ref:
             assert self.app_ref.nodes
             self.app_refs.append(self.app_ref)
             self.app_ref = None
-            print(f"done, appref=None")
-
-    def new(self, ref: int):
+            #print(f"done, appref=None")
+            
+    def new(self, redex: Redex):
+        assert redex.is_appref()
         assert not self.app_ref
-        self.app_ref = AppRef(ref)
-        print(f"new: {ref}")
+        self.app_ref = AppRef(redex.pos.loc, redex)
+        #print(f"new ref: {redex.pos.loc}")
 
     def add(self, fst: MemOp, snd: MemOp):
         self.validate(fst, snd)
         if not self.app_ref:
-            assert self.root_itr(fst, snd) and fst.put.tag == 'REF'
+            assert is_root_itr(fst) and is_root_itr(snd) and fst.put.tag == 'REF'
             self.app_ref = AppRef(fst.put.loc)
 
         neg = NodeTerm(fst.put, stores=[fst])
@@ -110,8 +129,7 @@ class AppRefBuilder:
         neg.node = node;
         pos.node = node;
         self.app_ref.nodes.append(node)
-        print(f"add: {len(self.app_ref.nodes)}")
-
+        #print(f"add node: {len(self.app_ref.nodes)}")
 
 def parse_log_file(file_content: str) -> (list[MemOp], list[Redex], list[AppRef]):
     """Parse log file content into a list of MemOp objects."""
@@ -122,7 +140,7 @@ def parse_log_file(file_content: str) -> (list[MemOp], list[Redex], list[AppRef]
             continue
         parts = line.split(',')
         assert len(parts) >= 7
-        mem_op = get_memop(len(mem_ops), parts)
+        mem_op = make_memop(len(mem_ops), parts)
         mem_ops.append(mem_op)
 
     redex_bldr = RedexBuilder()
@@ -132,29 +150,27 @@ def parse_log_file(file_content: str) -> (list[MemOp], list[Redex], list[AppRef]
     
     while ops_que:
         fst = ops_que.popleft()
-        print(f"{fst}")
-        if fst.op == 'STOR' and (fst.itr == 'APPREF' or fst.itr == '______'):
+        if is_node_store(fst):
             snd = ops_que.popleft()
-            print(f"{snd}")
-            if (fst.loc < 100000):
-                appref_bldr.add(fst, snd)
-            else:
-                redex_bldr.add(fst.put, snd.put, appref_bldr.app_ref)
-        else:
-            appref_bldr.done()
+            appref_bldr.add(fst, snd)
+            continue
+
+        if is_redex_push(fst):
+            snd = ops_que.popleft()
+            redex_bldr.push(fst.put, snd.put, appref_bldr.app_ref)
+            continue
+
+        appref_bldr.done()
         
         if fst.op == 'POP':
             snd = ops_que.popleft()
-            print(f"{snd}")
-            #print(f"fst.got {fst.got} snd.got {snd.got}")
-            redex = Redex(fst.got, snd.got)
+            redex = redex_bldr.pop(fst.got, snd.got)
             if redex.is_appref():
-                appref_bldr.new(snd.got.loc)
+                appref_bldr.new(redex)
 
     return (mem_ops, redex_bldr.redexes, appref_bldr.app_refs)
 
-def parse_log_from_file(filename: str): #-> List[MemOp]:
-    """Parse log file from disk."""
+def parse_log_from_file(filename: str):
     try:
         with open(filename, 'r') as f:
             return parse_log_file(f.read())
@@ -170,9 +186,7 @@ def parse_log_from_file(filename: str): #-> List[MemOp]:
 def sum_nodes(app_refs: list[AppRef]) -> int:
     return sum(len(a.nodes) for a in app_refs)
 
-# Example usage:
 if __name__ == "__main__":
-    # Check if filename provided as command line argument
     if len(sys.argv) < 2:
         printf(f"usage: parse <filename>")
         sys.exit(1)

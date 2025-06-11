@@ -79,14 +79,17 @@ class AppRefRect:
     width: int
     height: int
     color_scheme: str = "dim terminal"
+    selected: bool = False
+    visible: bool = True
     
     def get_rect(self) -> pygame.Rect:
         """Get pygame.Rect for collision detection and bounds checking."""
         return pygame.Rect(self.x, self.y, self.width, self.height)
 
-
     def draw(self, surface: pygame.Surface, table: dict):
-        if self.color_scheme == "bright terminal":
+        if not self.visible: return
+
+        if self.selected or (self.color_scheme == "bright terminal"):
             text_color = BRIGHT_GREEN
             header_color = YELLOW
             border_color = BRIGHT_GREEN
@@ -101,8 +104,6 @@ class AppRefRect:
             header_color = WHITE
             border_color = LIGHT_CYAN
             line_color = LIGHT_CYAN
-    
-        #operations = self.collect_memory_operations()
     
         title_font = get_title_font()
         font = get_content_font()
@@ -168,7 +169,10 @@ class AppRefManager:
     def __init__(self, screen: pygame.Surface, table: dict):
         self.screen = screen
         self.table = table
-        self.app_ref_rects: list[AppRefRect] = []
+        self.all_rects: list[AppRefRect] = []
+        self.disp_rects: list[AppRefRect] = []
+        self.ref_rect_map = {}
+        self.show_deps_only: bool = False
         
     def calculate_appref_dimensions(self, app_ref: AppRef) -> Tuple[int, int]:
         width = self.table['width']
@@ -180,20 +184,25 @@ class AppRefManager:
         )
         return width, height
 
+    def _add_rect(self, rect: AppRefRect):
+        self.all_rects.append(rect)
+        self.disp_rects.append(rect)
+        self.ref_rect_map[rect.app_ref.id] = rect
+
     def add_appref(self, app_ref: AppRef, color_scheme: str = "dim terminal") -> AppRefRect:
         width, height = self.calculate_appref_dimensions(app_ref)
         x, y = self._find_next_position(width, height)
         
-        app_ref_rect = AppRefRect(app_ref, x, y, width, height, color_scheme)
-        self.app_ref_rects.append(app_ref_rect)
-        return app_ref_rect
+        rect = AppRefRect(app_ref, x, y, width, height, color_scheme)
+        self._add_rect(rect)
+        return rect
     
     def _find_next_position(self, width: int, height: int) -> Tuple[int, int]:
-        if not self.app_ref_rects:
+        if not self.all_rects:
             return self.table['layout']['left_margin'], self.table['layout']['top_margin']
         
         # Try to place under last appref
-        last_rect = self.app_ref_rects[-1]
+        last_rect = self.all_rects[-1]
         potential_y = last_rect.y + last_rect.height + self.table['layout']['vert_spacing']
             
         # Check if it fits vertically and doesn't exceed screen bounds
@@ -212,32 +221,87 @@ class AppRefManager:
         # TODO
         raise RuntimeError("ran out of screen space")
     
+    """
     def remove_appref(self, app_ref: AppRef) -> bool:
         for i, rect in enumerate(self.app_ref_rects):
             if rect.app_ref is app_ref:
                 del self.app_ref_rects[i]
                 return True
         return False
+    """
     
-    def get_appref_at_position(self, x: int, y: int) -> AppRefRect:
-        for rect in self.app_ref_rects:
+    def get_rect_at_position(self, x: int, y: int) -> AppRefRect:
+        for rect in self.disp_rects:
             if rect.get_rect().collidepoint(x, y):
                 return rect
         return None
     
+    """
     def reposition_all(self):
-        if not self.app_ref_rects:
+        if not self.disp_app_refs:
             return
             
-        # Store the AppRefs and their properties
-        app_refs_data = [(rect.app_ref, rect.color_scheme) for rect in self.app_ref_rects]
-        
-        # Clear the list and re-add them
-        self.app_ref_rects.clear()
+        self.disp_app_refs.clear()
         for app_ref, color_scheme in app_refs_data:
             self.add_appref(app_ref, color_scheme)
+    """
     
     def draw_all(self, surface: pygame.Surface):
-        for arr in self.app_ref_rects:
-            arr.draw(surface, self.table)
+        for rect in self.disp_rects:
+            rect.draw(surface, self.table)
 
+    def get_selected(self) -> list[AppRefRect]:
+        return [rect for rect in self.disp_rects if rect.selected]
+
+    def only_rects_visible(self, rects: list[AppRefRect]):
+        map = {}
+        for rect in rects:
+            map[rect.app_ref.id] = rect
+
+        # hide all non-selected that aren't in supplied rects
+        for rect in self.all_rects:
+            if not rect.selected:
+                rect.visible = rect.app_ref.id in map
+            else:
+                assert rect.visible
+
+    def all_rects_visible(self):
+        for rect in self.all_rects:
+            rect.visible = True
+
+    def rect_from_loc(self, loc: int) -> AppRefRect:
+        for rect in self.all_rects:
+            if loc >= rect.app_ref.first_loc and loc <= rect.app_ref.last_loc:
+                return rect
+        return None
+
+    def get_dep_rects(self, rect: AppRefRect) -> list[AppRefRect]:
+        dep_rects = []
+        while rect and rect.app_ref.redex:
+            rect = self.rect_from_loc(rect.app_ref.redex.neg.loc)
+            if rect:
+                dep_rects.append(rect)
+        return dep_rects
+
+    def toggle_show_dependencies(self):
+        if self.show_deps_only:
+            self.all_rects_visible()
+            self.show_deps_only = False
+            return
+
+        sel_rects = self.get_selected()
+        if not sel_rects:
+            return
+
+        sel_rect = sel_rects[0]
+        dep_rects = self.get_dep_rects(sel_rect)
+        #dep_rects = []
+        # build map of dependent app_ref ids
+        #for dep_rect in dep_rects:
+            #dep_rect = self.rect_from_app_ref(self.all_rects, app_ref)
+            #if (dep_rect):
+                #dep_rects[dep_rect.app_ref.id] = dep_rect
+                #dep_rects.append(dep_rect)
+
+        self.only_rects_visible(dep_rects)
+        self.show_deps_only = True
