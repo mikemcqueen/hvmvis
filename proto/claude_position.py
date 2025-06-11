@@ -156,11 +156,23 @@ def make_example_apprefs():
         op2 = MemOp(i+1, 0, "APPREF", "STOR", 0, terms[i+1], None, loc+1)
         neg = NodeTerm(terms[i], stores=[op1])
         pos = NodeTerm(terms[i+1], stores=[op2])
-        nod = Node(loc, ref, neg, pos)
+        nod = Node(loc, neg, pos, ref)
         ref.nodes.append(nod)
     app_refs.append(ref)
 
     return app_refs
+
+def draw_instructions(screen: pygame.Surface):
+    # Draw instructions
+    font = get_content_font()
+    instructions = [
+        "SPACE: Add new AppRef",
+        "R: Reposition all",
+        "Click: Remove AppRef"
+    ]
+    for i, instruction in enumerate(instructions):
+        text = font.render(instruction, True, WHITE)
+        screen.blit(text, (10, 10 + i * 20))
 
 def add_new_app_ref(manager, loc: int) -> int:
     new_ref = AppRef(len(manager.app_ref_rects) + 10)
@@ -171,14 +183,14 @@ def add_new_app_ref(manager, loc: int) -> int:
     op2 = MemOp(1, 0, "APPREF", "STOR", 0, term2, None, loc + 1)
     neg = NodeTerm(term1, stores=[op1])
     pos = NodeTerm(term2, stores=[op2])
-    node = Node(100, new_ref, neg, pos)
+    node = Node(100, neg, pos, new_ref)
     new_ref.nodes.append(node)
     manager.add_appref(new_ref, "dim terminal")
     return loc + 2
 
-def create_dynamic_example():
+def event_loop(app_refs: list[AppRef] = make_example_apprefs()):
     pygame.init()
-    screen = pygame.display.set_mode((1280, 950))
+    screen = pygame.display.set_mode((1850, 1024))
     pygame.display.set_caption("HVM Vis")
     clock = pygame.time.Clock()
     
@@ -186,8 +198,6 @@ def create_dynamic_example():
     manager = AppRefManager(screen, get_table_metrics())
     
     loc = 100
-    # Add initial AppRefs
-    app_refs = make_example_apprefs()
     for app_ref in app_refs:
         manager.add_appref(app_ref, "dim terminal")
     
@@ -200,10 +210,10 @@ def create_dynamic_example():
                 if event.key == pygame.K_SPACE:
                     loc = add_new_app_ref(manager, loc)
                 elif event.key == pygame.K_r:
-                    # Reposition all AppRefs
                     manager.reposition_all()
+                elif event.key == pygame.K_q:
+                    running = False
             elif event.type == pygame.MOUSEBUTTONDOWN:
-                # Click to remove an AppRef
                 clicked_rect = manager.get_appref_at_position(*event.pos)
                 if clicked_rect:
                     manager.remove_appref(clicked_rect.app_ref)
@@ -211,21 +221,12 @@ def create_dynamic_example():
         screen.fill(BLACK)
         manager.draw_all(screen)
         
-        # Draw instructions
-        font = get_content_font()
-        instructions = [
-            "SPACE: Add new AppRef",
-            "R: Reposition all",
-            "Click: Remove AppRef"
-        ]
-        for i, instruction in enumerate(instructions):
-            text = font.render(instruction, True, WHITE)
-            screen.blit(text, (10, 10 + i * 20))
+        draw_instructions(screen)
         
         pygame.display.flip()
-        clock.tick(60)
+        clock.tick(30)
     
     pygame.quit()
 
 if __name__ == "__main__":
-    create_dynamic_example()
+    event_loop()

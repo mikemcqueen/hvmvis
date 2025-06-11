@@ -61,9 +61,9 @@ class Redex:
 @dataclass
 class Node:
     loc: int
-    app_ref: 'AppRef'
     neg: NodeTerm
     pos: NodeTerm
+    app_ref: 'AppRef'
     # this probably doesn't make sense
     #parent: Optional[Node]
     #child: Optional[Node]
