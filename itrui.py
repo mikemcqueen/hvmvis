@@ -1,6 +1,9 @@
 import pygame
-from hvm import *
+
+from anim import *
+from fonts import fonts
 from refui import *
+from hvm import *
 
 ORANGE = (255, 165, 0)
 BRIGHT_ORANGE = (255, 190, 30)
@@ -54,7 +57,7 @@ class ItrManager:
         current_x = self.x + table['col_spacing']['margin']
         """
     
-        title_font = get_title_font()
+        title_font = fonts.title
 
         header_color = ORANGE
 
@@ -82,7 +85,7 @@ class ItrManager:
         #pygame.draw.line(surface, line_color, (line_left, line_y), (line_right, line_y), 1)
 
     def draw_memops(self, surface: pygame.Surface, memops: list[MemOp]):
-        font = get_content_font()
+        font = fonts.content
 
         text_color = ORANGE
         sel_text_color = YELLOW

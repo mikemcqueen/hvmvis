@@ -2,13 +2,7 @@ from collections import deque
 import sys
 
 from hvm import *
-
-import os
-import sys
-root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), 'proto'))
-sys.path.insert(0, root_dir)
-
-from claude_position import event_loop
+from vis import event_loop
 
 TermMap = dict[Term, NodeTerm]
 
@@ -324,5 +318,3 @@ if __name__ == "__main__":
     print(f"ref.def_idx < 7 or >= 1024: {sum(1 for ref in refs if ref.def_idx < 7 or ref.def_idx >= DefIdx.MAT)}")
     #event_loop([ref for ref in refs if ref.def_idx < 7 or ref.def_idx >= DefIdx.MAT])
     event_loop(itrs)
-    #for op in memops:
-    #print(op)

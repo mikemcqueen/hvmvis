@@ -1,6 +1,8 @@
 import pygame
 from dataclasses import dataclass
 from typing import Tuple
+
+from fonts import fonts
 from hvm import ExpandRef, DefIdx
 
 TITLE_FONT_SIZE = 14
@@ -34,46 +36,6 @@ def ref_name(def_idx: int):
         return f"matu32_{def_idx}"
     else:
         return d.get(def_idx, f"ref_{def_idx}")
-
-def get_font(size: int, bold: bool = True) -> pygame.font.Font:
-    """Get a monospace font for consistent character spacing with better readability."""
-    font_names = [
-        'consolas', 'menlo', 'monaco', 'dejavu sans mono', 
-        'liberation mono', 'courier new', 'courier'
-    ]
-    
-    for font_name in font_names:
-        try:
-            font_path = pygame.font.match_font(font_name, bold=bold)
-            if font_path:
-                return pygame.font.Font(font_path, size)
-        except:
-            continue
-    
-    return pygame.font.Font(None, size)
-
-def get_font_metrics(font: pygame.font.Font) -> dict:
-    """Get useful font metrics for layout calculations."""
-    char_width = font.size("X")[0]
-    line_height = font.get_height()
-    ascent = font.get_ascent()
-    descent = font.get_descent()
-    
-    return {
-        'char_width': char_width,
-        'line_height': line_height,
-        'ascent': ascent,
-        'descent': descent,
-        'half_char': char_width // 2,
-        'quarter_line': line_height // 4,
-        'half_line': line_height // 2
-    }
-
-def get_title_font() -> pygame.font.Font:
-    return get_font(TITLE_FONT_SIZE, bold=True)
-
-def get_content_font() -> pygame.font.Font:
-    return get_font(FONT_SIZE, bold=True)
 
 @dataclass
 class RefRect:
@@ -109,8 +71,8 @@ class RefRect:
             border_color = LIGHT_CYAN
             line_color = LIGHT_CYAN
     
-        title_font = get_title_font()
-        font = get_content_font()
+        title_font = fonts.title
+        font = fonts.content
     
         # Draw background
         pygame.draw.rect(surface, BLACK, (self.x, self.y, self.width, self.height))
