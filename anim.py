@@ -90,7 +90,7 @@ class AnimManager:
 
     def get_row_position(self, rect: RefRect, loc: int) -> Optional[int]:
         for i, node in enumerate(rect.ref.nodes):
-            for j, term in enumerate((node.pos, node.neg)):
+            for j, term in enumerate((node.neg, node.pos)):
                 term_loc = term.stores[0].loc
                 if loc == term_loc:
                     return (
@@ -192,13 +192,13 @@ class AnimManager:
         return False
 
     def draw_animated_term(self, surface: pygame.Surface, anim: AnimationState, 
-                           start_x: int, font: pygame.font.Font):
+                           font: pygame.font.Font):
         if anim.phase == 'complete':
             return
     
         # Calculate column positions for TAG, LAB, LOC (skip MEM column)
         col_positions = []
-        current_x = start_x + self.table['col_spacing']['margin']  # Start at left border spacing
+        current_x = anim.from_appref_pos[0].x + self.table['col_spacing']['margin']
         
         # Skip MEM column (index 0) and calculate positions for TAG, LAB, LOC
         current_x += self.table['column_widths'][0]  # Add MEM column width
@@ -263,7 +263,7 @@ class AnimManager:
     def draw_all(self):
         for anim in self.anims:
             if anim.phase != 'complete':
-                self.draw_animated_term(self.screen, anim, 0, fonts.content)
+                self.draw_animated_term(self.screen, anim, fonts.content)
 
     def swap(self, from_loc: int, to_loc: int, rects: list[RefRect]) -> AnimationState:
         anim = self.move_term_animated(rects, from_loc, to_loc)
