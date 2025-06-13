@@ -58,12 +58,6 @@ def make_memop(seq: int, parts: list[str]) -> MemOp:
         loc=loc
     )
 
-def is_root_itr(mem_op: MemOp):
-    return mem_op.itr == '______'
-
-def is_root_or_appref_itr(mem_op: MemOp):
-    return is_root_itr(mem_op) or mem_op.itr == 'APPREF'
-
 def is_redex_push(mem_op: MemOp) -> bool:
     # Arbitrary limit here will bite me eventually
     # only works with TPC = 1. more threads means node address may be larger.
@@ -76,63 +70,126 @@ def is_redex_push(mem_op: MemOp) -> bool:
 def is_node_store(mem_op: MemOp) -> bool:
     return (
         mem_op.op == 'STOR' and
-        is_root_or_appref_itr(mem_op) and
+        (mem_op.is_root_itr() or mem_op.is_appref_itr()) and
         not is_redex_push(mem_op)
     )
 
+def ref_from_loc(refs: list[ExpandRef], loc: int):
+    for ref in refs:
+        if ref.contains(loc):
+            return ref
+    print(f"No ref for loc {loc}")
+    return None
+
 @dataclass(eq=False)
 class RedexBuilder:
+    term_map: TermMap
+    refs: list[ExpandRef]
     redexes: list[Redex] = field(default_factory=list)
     redex_map: dict[tuple[Term, Term], Redex] = field(default_factory=dict)
 
-    def push(self, neg: Term, pos: Term, app_ref: AppRef):
-        assert neg and pos
-        redex = Redex(neg, pos, app_ref)
+    def get_node_term(self, term: Term):
+        if term not in self.term_map:
+            if term.has_loc():
+                # Term with loc *should* be in term_map, but isn't yet - add it
+                node = NodeProxy(ref_from_loc(self.refs, term.loc))
+                node_term = NodeTerm(term, node=node)
+                self.term_map[term] = node_term
+            else:
+                # Term with without loc should *not* be in term_map, just wrap
+                # it in a NodeTerm for convenience
+                node_term = NodeTerm(term)
+            return node_term
+        else:
+            return self.term_map[term]
+
+    def push(self, neg_op: MemOp, pos_op: MemOp, ref: ExpandRef):
+        redex = Redex(self.get_node_term(neg_op.put), self.get_node_term(pos_op.put)) #, ref)
         self.redexes.append(redex)
         #print(f"push {redex.neg} {redex.pos}")
-        self.redex_map[(neg, pos)] = redex
+        if neg_op.put.has_loc() or pos_op.put.has_loc():
+            # this is OK, but using NodeTerms in tuple might provide better
+            # validation, and faster hash
+            key = (neg_op.put, pos_op.put)
+            if key in self.redex_map:
+                print(f"key in map: {key}")
+            assert key not in self.redex_map
+            self.redex_map[key] = redex
 
-    def pop(self, neg: Term, pos: Term) -> Redex:
-        assert neg and pos
-        return self.redex_map[(neg, pos)]
+    def pop(self, neg_op: MemOp, pos_op: MemOp) -> Redex:
+        if neg_op.got.has_loc() or pos_op.got.has_loc():
+            popped = self.redex_map[(neg_op.got, pos_op.got)]
+            print(f"popped {popped}")
+            return popped
+        else:
+            print(f"popped -None-")
+            return None
+
+    #def pop(self, neg_op: Term, pos: Term) -> Redex:
+    #    return self.redex_map[(neg, pos)]
         
 @dataclass(eq=False)
-class AppRefBuilder:
-    app_refs: list[AppRef] = field(default_factory=list)
-    app_ref: Optional[AppRef] = None
+class RefBuilder:
+    term_map: TermMap
+    refs: list[ExpandRef]
+    ref: Optional[ExpandRef] = None
 
-    def validate(self, fst: MemOp, snd: MemOp):
-        return is_node_store(fst) and is_node_store(snd)
-            
+    def add_node_term(self, node_term: NodeTerm):
+        if not node_term.term.has_loc(): return
+        assert not node_term.term in self.term_map
+        self.term_map[node_term.term] = node_term
+
     def done(self):
-        if self.app_ref:
-            assert self.app_ref.nodes
-            self.app_refs.append(self.app_ref)
-            self.app_ref = None
-            #print(f"done, appref=None")
+        if self.ref:
+            assert self.ref.nodes
+            print(f"done, ref {self.ref.def_idx} redex {self.ref.redex}")
+            self.ref = None
             
-    def new(self, redex: Redex):
-        assert redex.is_appref()
-        assert not self.app_ref
-        self.app_ref = AppRef(redex.pos.loc, redex)
-        #print(f"new ref: {redex.pos.loc}")
+    def new(self, redex: Redex, loc: Optional[int] = None):
+        assert not self.ref
+        if not loc: loc = redex.pos.loc
+        self.ref = ExpandRef(loc, redex)
+        self.refs.append(self.ref)
+        print(f"new {redex.neg.tag}{redex.pos.tag} def_idx: {loc}")
 
     def add(self, fst: MemOp, snd: MemOp):
-        self.validate(fst, snd)
-        if not self.app_ref:
-            assert is_root_itr(fst) and is_root_itr(snd) and fst.put.tag == 'REF'
-            self.app_ref = AppRef(fst.put.loc)
+        # TODO move conditional out of builder, into parse loop
+        #assert is_node_store(fst) and is_node_store(snd)
+        if not self.ref:
+            assert fst.is_root_itr() and snd.is_root_itr() and fst.put.tag == 'REF'
+            self.ref = ExpandRef(fst.put.loc)
+            self.refs.append(self.ref)
 
+        print(f"adding node: {fst.put} {snd.put} @ {fst.loc}")
         neg = NodeTerm(fst.put, stores=[fst])
         pos = NodeTerm(snd.put, stores=[snd])
-        node = Node(fst.loc, neg, pos, self.app_ref)
+        node = Node(neg, pos, self.ref)
         neg.node = node;
         pos.node = node;
-        self.app_ref.nodes.append(node)
-        #print(f"add node: {len(self.app_ref.nodes)}")
 
-def parse_log_file(file_content: str) -> (list[MemOp], list[Redex], list[AppRef]):
-    """Parse log file content into a list of MemOp objects."""
+        self.ref.nodes.append(node)
+        print(f"added node: {len(self.ref.nodes)}")
+
+        self.add_node_term(neg)
+        self.add_node_term(pos)
+
+# TODO: some kind of support for "dynamic node store" op-pair, like in matnum
+def record_mem_op(term_map: TermMap, mem_op: MemOp, refs: list[ExpandRef]):
+    if mem_op.got and mem_op.got.has_loc():
+        node_term = term_map[mem_op.got]
+        node_term.loads.append(mem_op)
+    if mem_op.put and mem_op.put.has_loc():
+        # sometimes we materialize a new term out of thin air, e.g. matnum VAR;
+        # now's a good time to add it to the term_map
+        if not mem_op.put in term_map:
+            node = NodeProxy(ref_from_loc(refs, mem_op.put.loc))
+            node_term = NodeTerm(mem_op.put, node=node, stores=[mem_op])
+            term_map[mem_op.put] = node_term
+        else:
+            node_term = term_map[mem_op.put]
+            node_term.stores.append(mem_op)
+
+def parse_log_file(file_content: str) -> (list[MemOp], list[Redex], list[ExpandRef]):
     mem_ops = []
     lines = file_content.strip().split('\n')
     for line in lines:
@@ -143,32 +200,62 @@ def parse_log_file(file_content: str) -> (list[MemOp], list[Redex], list[AppRef]
         mem_op = make_memop(len(mem_ops), parts)
         mem_ops.append(mem_op)
 
-    redex_bldr = RedexBuilder()
-    appref_bldr = AppRefBuilder()
+    term_map: TermMap = {}
+    refs: list[ExpandRef] = []
+
+    redex_bldr = RedexBuilder(term_map, refs)
+    ref_bldr = RefBuilder(term_map, refs)
+    last_popped: Optional[Redex] = None
     
     ops_que = deque(mem_ops)
+
     
     while ops_que:
         fst = ops_que.popleft()
         if is_node_store(fst):
             snd = ops_que.popleft()
-            appref_bldr.add(fst, snd)
+            ref_bldr.add(fst, snd)
             continue
 
         if is_redex_push(fst):
             snd = ops_que.popleft()
-            redex_bldr.push(fst.put, snd.put, appref_bldr.app_ref)
+            redex_bldr.push(fst, snd, ref_bldr.ref)
             continue
 
-        appref_bldr.done()
+        # can i move this above is_redex_push()?
+        # or peek into queue to see if next is also a node_stor?
+        # and while fst and is_node_store(fst): above
+        ref_bldr.done()
         
+        # TODO: is_redex_pop(fst)
         if fst.op == 'POP':
             snd = ops_que.popleft()
-            redex = redex_bldr.pop(fst.got, snd.got)
-            if redex.is_appref():
-                appref_bldr.new(redex)
+            assert fst.itr == snd.itr
+            redex = redex_bldr.pop(fst, snd)
+            if redex:
+                last_popped = redex
+                if fst.is_appref_itr():
+                    ref_bldr.new(redex)
+                # TODO
+                #else:
+                #   itr_bldr.new(redex)
+            continue
 
-    return (mem_ops, redex_bldr.redexes, appref_bldr.app_refs)
+        print(f"{fst}")
+
+        # if a MATNUM is STORing a NUM, it is a new node it has created
+        if fst.is_matnum_itr() and fst.op == 'STOR' and fst.put.has_num_tag():
+            snd = ops_que.popleft()
+            ref_bldr.new(last_popped, DefIdx.MAT + last_popped.neg.loc)
+            ref_bldr.add(fst, snd)
+            ref_bldr.done()
+            continue
+
+        # at this point, it should just a "normal" memory operation, i.e., the
+        # "meat" of an interaction.
+        record_mem_op(term_map, fst, refs)
+
+    return (mem_ops, redex_bldr.redexes, refs)
 
 def parse_log_from_file(filename: str):
     try:
@@ -183,8 +270,8 @@ def parse_log_from_file(filename: str):
 
     return ([], [], [])
 
-def sum_nodes(app_refs: list[AppRef]) -> int:
-    return sum(len(a.nodes) for a in app_refs)
+def sum_nodes(refs: list[ExpandRef]) -> int:
+    return sum(len(a.nodes) for a in refs)
 
 if __name__ == "__main__":
     if len(sys.argv) < 2:
@@ -192,14 +279,14 @@ if __name__ == "__main__":
         sys.exit(1)
         
     filename = sys.argv[1]
-    (mem_ops, redexes, app_refs) = parse_log_from_file(filename)
+    (mem_ops, redexes, refs) = parse_log_from_file(filename)
     if not mem_ops:
         print(f"No memory operations loaded")
         sys.exit(1)
 
-    print(f"mem_ops: {len(mem_ops)} app_refs: {len(app_refs)} nodes: {sum_nodes(app_refs)} redexes: {len(redexes)}")
-    print(f"{[a.ref for a in app_refs]}")
-    print(f"apprefs < 7: {sum(1 for a in app_refs if a.ref < 7)}")
-    event_loop([app_ref for app_ref in app_refs if app_ref.ref < 7])
+    print(f"mem_ops: {len(mem_ops)} refs: {len(refs)} nodes: {sum_nodes(refs)} redexes: {len(redexes)}")
+    print(f"{[ref.def_idx for ref in refs]}")
+    print(f"ref.def_idx < 7 or >= 1024: {sum(1 for ref in refs if ref.def_idx < 7 or ref.def_idx >= DefIdx.MAT)}")
+    event_loop([ref for ref in refs if ref.def_idx < 7 or ref.def_idx >= DefIdx.MAT])
     #for op in mem_ops:
     #print(op)

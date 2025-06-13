@@ -1,7 +1,7 @@
 import pygame
 from dataclasses import dataclass
 from typing import Tuple
-from hvm import AppRef
+from hvm import ExpandRef, DefIdx
 
 TITLE_FONT_SIZE = 14
 FONT_SIZE = 14
@@ -16,7 +16,7 @@ BRIGHT_GREEN = (0, 255, 0)
 YELLOW = (255, 255, 0)
 ORANGE = (255, 165, 0)
 
-def ref_name(ref: int):
+def ref_name(def_idx: int):
     d = {
         0: "height",
         1: "leaf",
@@ -29,7 +29,11 @@ def ref_name(ref: int):
         8: "sum_leaf",
         9: "sum_node"
     }
-    return d.get(ref, f"ref_{ref}")
+    if def_idx > DefIdx.MAT:
+        def_idx -= DefIdx.MAT
+        return f"matu32_{def_idx}"
+    else:
+        return d.get(def_idx, f"ref_{def_idx}")
 
 def get_font(size: int, bold: bool = True) -> pygame.font.Font:
     """Get a monospace font for consistent character spacing with better readability."""
@@ -72,8 +76,8 @@ def get_content_font() -> pygame.font.Font:
     return get_font(FONT_SIZE, bold=True)
 
 @dataclass
-class AppRefRect:
-    app_ref: AppRef
+class RefRect:
+    ref: ExpandRef
     x: int
     y: int
     width: int
@@ -116,7 +120,7 @@ class AppRefRect:
         pygame.draw.rect(surface, border_color, border_rect, table['table_border_thickness'])
     
         # Draw title with background to clip the border
-        title_surface = title_font.render(ref_name(self.app_ref.ref), True, header_color)
+        title_surface = title_font.render(ref_name(self.ref.def_idx), True, header_color)
         title_width = title_surface.get_width()
         title_x = self.x + (self.width - title_width) // 2
         title_y = self.y - title_font.get_height() // 2
@@ -146,7 +150,7 @@ class AppRefRect:
         
         # Draw data rows
         row_y = line_y + 1 + table['row_spacing']['margin'] 
-        for node in self.app_ref.nodes:
+        for node in self.ref.nodes:
             for term in (node.neg, node.pos):
                 mem_loc = term.stores[0].loc
                 current_x = self.x + table['col_spacing']['margin']
@@ -165,18 +169,18 @@ class AppRefRect:
 
                 row_y += table['metrics']['line_height'] + table['row_spacing']['intra_row']
 
-class AppRefManager:
+class RefManager:
     def __init__(self, screen: pygame.Surface, table: dict):
         self.screen = screen
         self.table = table
-        self.all_rects: list[AppRefRect] = []
-        self.disp_rects: list[AppRefRect] = []
+        self.all_rects: list[RefRect] = []
+        self.disp_rects: list[RefRect] = []
         self.ref_rect_map = {}
         self.show_deps_only: bool = False
         
-    def calculate_appref_dimensions(self, app_ref: AppRef) -> Tuple[int, int]:
+    def calculate_ref_dimensions(self, ref: ExpandRef) -> Tuple[int, int]:
         width = self.table['width']
-        num_ops = len(app_ref.nodes) * 2
+        num_ops = len(ref.nodes) * 2
         height = (
             self.table['table_header_height'] + self.table['row_spacing']['margin'] * 2 + 
             num_ops * (self.table['metrics']['line_height'] + self.table['row_spacing']['intra_row']) -
@@ -184,16 +188,16 @@ class AppRefManager:
         )
         return width, height
 
-    def _add_rect(self, rect: AppRefRect):
+    def _add_rect(self, rect: RefRect):
         self.all_rects.append(rect)
         self.disp_rects.append(rect)
-        self.ref_rect_map[rect.app_ref.id] = rect
+        self.ref_rect_map[rect.ref.id] = rect
 
-    def add_appref(self, app_ref: AppRef, color_scheme: str = "dim terminal") -> AppRefRect:
-        width, height = self.calculate_appref_dimensions(app_ref)
+    def add_ref(self, ref: ExpandRef, color_scheme: str = "dim terminal") -> RefRect:
+        width, height = self.calculate_ref_dimensions(ref)
         x, y = self._find_next_position(width, height)
         
-        rect = AppRefRect(app_ref, x, y, width, height, color_scheme)
+        rect = RefRect(ref, x, y, width, height, color_scheme)
         self._add_rect(rect)
         return rect
     
@@ -201,7 +205,7 @@ class AppRefManager:
         if not self.all_rects:
             return self.table['layout']['left_margin'], self.table['layout']['top_margin']
         
-        # Try to place under last appref
+        # Try to place under last ref
         last_rect = self.all_rects[-1]
         potential_y = last_rect.y + last_rect.height + self.table['layout']['vert_spacing']
             
@@ -230,7 +234,7 @@ class AppRefManager:
         return False
     """
     
-    def get_rect_at_position(self, x: int, y: int) -> AppRefRect:
+    def get_rect_at_position(self, x: int, y: int) -> RefRect:
         for rect in self.disp_rects:
             if rect.get_rect().collidepoint(x, y):
                 return rect
@@ -250,18 +254,18 @@ class AppRefManager:
         for rect in self.disp_rects:
             rect.draw(surface, self.table)
 
-    def get_selected(self) -> list[AppRefRect]:
+    def get_selected(self) -> list[RefRect]:
         return [rect for rect in self.disp_rects if rect.selected]
 
-    def only_rects_visible(self, rects: list[AppRefRect]):
+    def only_rects_visible(self, rects: list[RefRect]):
         map = {}
         for rect in rects:
-            map[rect.app_ref.id] = rect
+            map[rect.ref.id] = rect
 
         # hide all non-selected that aren't in supplied rects
         for rect in self.all_rects:
             if not rect.selected:
-                rect.visible = rect.app_ref.id in map
+                rect.visible = rect.ref.id in map
             else:
                 assert rect.visible
 
@@ -269,16 +273,59 @@ class AppRefManager:
         for rect in self.all_rects:
             rect.visible = True
 
-    def rect_from_loc(self, loc: int) -> AppRefRect:
+    def rect_from_loc(self, loc: int) -> RefRect:
         for rect in self.all_rects:
-            if loc >= rect.app_ref.first_loc and loc <= rect.app_ref.last_loc:
+            if rect.ref.contains(loc):
                 return rect
         return None
 
-    def get_dep_rects(self, rect: AppRefRect) -> list[AppRefRect]:
+    def get_dep_rects(self, rect: RefRect) -> list[RefRect]:
         dep_rects = []
-        while rect and rect.app_ref.redex:
-            rect = self.rect_from_loc(rect.app_ref.redex.neg.loc)
+        while rect and rect.ref.redex:
+            # ref.redex is the redex as it originally occurred from within an
+            # ExpandRef. The neg term of that redex likely originated somewhere
+            # else (neg.stores[0]), and may have been stored and reloaded from
+            # other intermediate location(s) (neg.loads[]) since then. We want
+            # to know the loc (and consequently, ref) from which the neg term
+            # was *last* loaded.
+            #
+            # Well it's not so simple is it. Move/link shenanigans will swap it
+            # in to one location (store) then swap it back out (load), but that
+            # isn't really a load we care about. In other words, it seems like
+            # we want to ignore the link/move swaps. Anything with a level > 0
+            # perhaps?
+            #
+            # Maybe I just don't know enough to devise a general solution.
+            #
+            # The "Last load" workaround was specifically for getting APPREF
+            # <leaf> to recognize it came from MATU32 result <make-leaf>.
+            #
+            # Maybe I just need to hardcode that rule, and hardcode another
+            # rule for MATU32 emergent nodes.
+            #
+            neg = rect.ref.redex.neg
+            # 1st case: <leaf> depends on <make_leaf>
+            last_load = neg.loads and neg.loads[-1]
+            if last_load and last_load.is_matnum_itr():
+                loc = last_load.loc
+                print(f"redex.neg last_load {last_load} loc {loc}")
+
+            # 2nd case: <matu32_NN> <- <make>
+            #
+            # better approach
+            # elif last_load.is_applam_itr():
+            #     find the APPREF for this APPLAM. that's at the LAM's loc.
+            #     loc = last_load.itr.redex.pos.loc
+            elif neg.tag == 'MAT':
+                loc = neg.loc
+                print(f"redex.neg MAT loc {neg.term} loc {loc}")
+            else:
+                # fall back to the loc of the origin ref
+                loc = neg.node.ref.first_loc
+                print(f"fall back redex.neg.node.ref {neg.node.ref.def_idx} first_loc {loc}")
+
+            rect = self.rect_from_loc(loc)
+            print(f"rect from loc {loc} is {ref_name(rect.ref.def_idx)}")
             if rect:
                 dep_rects.append(rect)
         return dep_rects
@@ -295,13 +342,6 @@ class AppRefManager:
 
         sel_rect = sel_rects[0]
         dep_rects = self.get_dep_rects(sel_rect)
-        #dep_rects = []
-        # build map of dependent app_ref ids
-        #for dep_rect in dep_rects:
-            #dep_rect = self.rect_from_app_ref(self.all_rects, app_ref)
-            #if (dep_rect):
-                #dep_rects[dep_rect.app_ref.id] = dep_rect
-                #dep_rects.append(dep_rect)
 
         self.only_rects_visible(dep_rects)
         self.show_deps_only = True

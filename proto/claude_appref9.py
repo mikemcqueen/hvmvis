@@ -10,10 +10,7 @@ import sys
 root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 sys.path.insert(0, root_dir)
 
-from hvm import AppRef, Node, NodeTerm, MemOp, Term
-
-# Initialize pygame font system
-pygame.font.init()
+from hvm import ExpandRef, Node, NodeTerm, MemOp, Term
 
 # Constants for display
 TITLE_FONT_SIZE = 14
@@ -178,14 +175,14 @@ def format_hex_value(value: int, width: int = 4) -> str:
     """Format an integer as a zero-padded hexadecimal string."""
     return f"{value:0{width}X}"
 
-def collect_memory_operations(app_ref: AppRef) -> List[Tuple[int, str, int, int]]:
+def collect_memory_operations(ref: ExpandRef) -> List[Tuple[int, str, int, int]]:
     """
-    Collect all memory operations from an AppRef's nodes.
+    Collect all memory operations from an ExpandRef's nodes.
     Returns list of tuples: (mem_loc, tag, lab, term_loc)
     """
     operations = []
     
-    for node in app_ref.nodes:
+    for node in ref.nodes:
         # Collect from negative term
         for load_op in node.neg.loads:
             if load_op.got:
@@ -211,7 +208,7 @@ def collect_memory_operations(app_ref: AppRef) -> List[Tuple[int, str, int, int]
     return operations
 
 """
-def draw_appref(surface: pygame.Surface, app_ref: AppRef, x: int, y: int,
+def draw_appref(surface: pygame.Surface, ref: ExpandRef, x: int, y: int,
                 color_scheme: str = "terminal"):
     if color_scheme == "bright terminal":
         text_color = BRIGHT_GREEN
@@ -229,8 +226,8 @@ def draw_appref(surface: pygame.Surface, app_ref: AppRef, x: int, y: int,
         border_color = LIGHT_CYAN
         line_color = LIGHT_CYAN
     
-    operations = collect_memory_operations(app_ref)
-    width, height = calculate_appref_dimensions(app_ref)
+    operations = collect_memory_operations(ref)
+    width, height = calculate_appref_dimensions(ref)
     
     title_font = get_title_font()
     font = get_content_font()
@@ -246,7 +243,7 @@ def draw_appref(surface: pygame.Surface, app_ref: AppRef, x: int, y: int,
     pygame.draw.rect(surface, border_color, border_rect, table['table_border_thickness'])
     
     # Draw title with background to clip the border
-    title_surface = title_font.render(ref_name(app_ref.ref), True, header_color)
+    title_surface = title_font.render(ref_name(ref.ref), True, header_color)
     title_width = title_surface.get_width()
     title_x = x + (width - title_width) // 2
     title_y = y - title_font.get_height() // 2
@@ -301,7 +298,7 @@ def draw_appref(surface: pygame.Surface, app_ref: AppRef, x: int, y: int,
 """
 
 def make_example_apprefs():
-    app_refs = []
+    refs = []
 
     # 3 @ 14
     terms = [
@@ -315,16 +312,16 @@ def make_example_apprefs():
         Term("SUB", 0, 0)
     ]
 
-    ref = AppRef(3)
+    ref = ExpandRef(3)
     for i in range(0, len(terms), 2):
         loc = 14+i
         op1 = MemOp(i, 0, "APPREF", "STOR", 0, terms[i], None, loc)
         op2 = MemOp(i+1, 0, "APPREF", "STOR", 0, terms[i+1], None, loc+1)
         neg = NodeTerm(terms[i], stores=[op1])
         pos = NodeTerm(terms[i+1], stores=[op2])
-        nod = Node(loc, ref, neg, pos)
+        nod = Node(ref, neg, pos)
         ref.nodes.append(nod)
-    app_refs.append(ref)
+    refs.append(ref)
 
     # 5 @ 24
     terms = [
@@ -356,16 +353,16 @@ def make_example_apprefs():
         Term("SUB", 0, 0)
     ]
 
-    ref = AppRef(5)
+    ref = ExpandRef(5)
     for i in range(0, len(terms), 2):
         loc = 24+i
         op1 = MemOp(i, 0, "APPREF", "STOR", 0, terms[i], None, loc)
         op2 = MemOp(i+1, 0, "APPREF", "STOR", 0, terms[i+1], None, loc+1)
         neg = NodeTerm(terms[i], stores=[op1])
         pos = NodeTerm(terms[i+1], stores=[op2])
-        nod = Node(loc, ref, neg, pos)
+        nod = Node(ref, neg, pos)
         ref.nodes.append(nod)
-    app_refs.append(ref)
+    refs.append(ref)
 
     # 6 @ 50
     terms = [
@@ -383,18 +380,18 @@ def make_example_apprefs():
         Term("VAR", 0, 59)
     ]
     
-    ref = AppRef(6)
+    ref = ExpandRef(6)
     for i in range(0, len(terms), 2):
         loc = 50+i
         op1 = MemOp(i, 0, "APPREF", "STOR", 0, terms[i], None, loc)
         op2 = MemOp(i+1, 0, "APPREF", "STOR", 0, terms[i+1], None, loc+1)
         neg = NodeTerm(terms[i], stores=[op1])
         pos = NodeTerm(terms[i+1], stores=[op2])
-        nod = Node(loc, ref, neg, pos)
+        nod = Node(ref, neg, pos)
         ref.nodes.append(nod)
-    app_refs.append(ref)
+    refs.append(ref)
 
-    return app_refs
+    return refs
 
 def ref_name(ref: int):
     d = {
@@ -417,14 +414,14 @@ def create_example_display():
     screen = pygame.display.set_mode((1280, 950), 0)
     pygame.display.set_caption("HVM Vis")
 
-    app_refs = make_example_apprefs()
+    refs = make_example_apprefs()
 
-    create_animated_example(screen, app_refs)
+    create_animated_example(screen, refs)
 
     """
     # Create display
     screen = pygame.display.set_mode((1280, 1024))
-    pygame.display.set_caption("AppRef Display Example")
+    pygame.display.set_caption("ExpandRef Display Example")
     clock = pygame.time.Clock()
     
     running = True
@@ -438,7 +435,7 @@ def create_example_display():
         screen.fill(BLACK)
         
         y = 50
-        for a in app_refs:
+        for a in refs:
             # Try different color schemes - change this to test different options
             draw_appref(screen, a, 50, y, ref_name(a.ref), "dim terminal")
             y += calculate_appref_dimensions(a)[1] + 20
