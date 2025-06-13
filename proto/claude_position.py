@@ -10,8 +10,9 @@ import sys
 root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 sys.path.insert(0, root_dir)
 
-from hvm import ExpandRef, Node, NodeTerm, MemOp, Term
+from hvm import ExpandRef, Node, NodeTerm, MemOp, Term, Interaction
 from refui import *
+from itrui import ItrManager
 
 # Column character widths
 COLUMN_CHARS = [4, 3, 3, 4]  # mem, tag, lab, loc
@@ -179,45 +180,51 @@ def add_new_app_ref(manager, loc: int) -> int:
     manager.add_ref(new_ref, "dim terminal")
     return loc + 2
 
-def event_handler(event, mgr):
+def event_handler(event, ref_mgr: RefManager, itr_mgr: ItrManager):
     if event.type == pygame.QUIT:
         return False
     elif event.type == pygame.KEYDOWN:
         if event.key == pygame.K_SPACE:
-            loc = 0 # add_new_app_ref(mgr, loc)
-        #elif event.key == pygame.K_r:
-        #    mgr.reposition_all()
+            itr_mgr.next()
         elif event.key == pygame.K_d:
-            mgr.toggle_show_dependencies()
+            ref_mgr.toggle_show_dependencies()
         elif event.key == pygame.K_q:
             return False
     elif event.type == pygame.MOUSEBUTTONDOWN:
-        rect = mgr.get_rect_at_position(*event.pos)
+        rect = ref_mgr.get_rect_at_position(*event.pos)
         if rect:
             rect.selected = not rect.selected
     return True
 
-def event_loop(app_refs: list[ExpandRef]): # = make_example_apprefs()):
+def event_loop(itrs: list[Interaction]):
     pygame.display.init()
 
     screen = pygame.display.set_mode((1850, 1024))
     pygame.display.set_caption("HVM Vis")
     clock = pygame.time.Clock()
     
-    manager = RefManager(screen, get_table_metrics())
+    table = get_table_metrics()
+
+    ref_mgr = RefManager(screen, table)
+    itr_mgr = ItrManager(screen, itrs, ref_mgr, table)
     
-    loc = 1024
-    for app_ref in app_refs:
-        manager.add_ref(app_ref, "dim terminal")
+    #loc = 1024
+    #nfor app_ref in app_refs:
+    #manager.add_ref(app_ref, "dim terminal")
+    if itrs:
+        ref_mgr.add_ref(itrs[0], "dim terminal")
     
+    pygame.key.set_repeat(500, 50)
+
     running = True
     while running:
         for event in pygame.event.get():
-            if not event_handler(event, manager):
+            if not event_handler(event, ref_mgr, itr_mgr):
                 running = False
         
         screen.fill(BLACK)
-        manager.draw_all(screen)
+        ref_mgr.draw_all()
+        itr_mgr.draw()
         
         #draw_instructions(screen)
         

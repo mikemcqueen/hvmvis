@@ -40,6 +40,14 @@ class MemOp:
         else: # self.op == 'STOR'
             return f"{self.tid},{self.itr_name},{self.op},{self.lvl},{self.put.tag},{self.put.loc},{self.loc}"
 
+    def __str__(self) -> str:
+        if self.op == 'EXCH':
+            return f"{self.op},{self.lvl},{self.got.tag},{self.got.loc},{self.put.tag},{self.put.loc},{self.loc}"
+        elif self.op == 'POP' or self.op == 'LOAD':
+            return f"{self.op},{self.lvl},{self.got.tag},{self.got.loc},{self.loc}"
+        else: # self.op == 'STOR'
+            return f"{self.op},{self.lvl},{self.put.tag},{self.put.loc},{self.loc}"
+
     def is_root_itr(self):
         return self.itr_name == '______'
 
@@ -122,20 +130,28 @@ class HasNodes(ABC):
     def contains(self, loc: int):
         return loc >= self.first_loc() and loc <= self.last_loc()
 
-
 @dataclass(eq=False, kw_only=True)
 class Interaction(ABC):
     redex: Optional[Redex] = None
     memops: list[MemOp] = field(default_factory=list)
+
+    @abstractmethod
+    def name(self) -> str:
+        pass
 
 @dataclass(eq=False, kw_only=True)
 class ExpandRef(Interaction, HasNodes):
     def_idx: int
     nodes: list[Node] = field(default_factory=list)
 
+    def __repr__(self) -> str:
+        return f"def_idx: {self.def_idx} {self.redex}"
+
+    def name() -> str:
+        pass
+
     def first_loc(self) -> int:
         return self.nodes[0].neg.stores[0].loc
-
 
     def last_loc(self) -> int:
         return self.nodes[-1].pos.stores[0].loc
@@ -143,14 +159,14 @@ class ExpandRef(Interaction, HasNodes):
     @property
     def id(self): return (self.def_idx, self.first_loc)
 
-    def __repr__(self) -> str:
-        return f"def_idx: {self.def_idx} {self.redex}"
-
 @dataclass(eq=False)
 class AppRef(ExpandRef):
     NAME = 'APPREF'
     def __init__(self, def_idx: int, redex: Optional[Redex]):
         super().__init__(redex=redex, def_idx=def_idx)
+
+    def name(self) -> str:
+        return AppRef.NAME
 
 @dataclass(eq=False)
 class AppLam(Interaction):
@@ -158,11 +174,17 @@ class AppLam(Interaction):
     def __init__(self, redex: Redex):
         super().__init__(redex=redex)
 
+    def name(self) -> str:
+        return AppLam.NAME
+
 @dataclass(eq=False)
 class DupNum(Interaction):
     NAME = 'DUPU32'
     def __init__(self, redex: Redex):
         super().__init__(redex=redex)
+
+    def name(self) -> str:
+        return DupNum.NAME
 
 @dataclass(eq=False)
 class OpxNum(Interaction):
@@ -170,17 +192,26 @@ class OpxNum(Interaction):
     def __init__(self, redex: Redex):
         super().__init__(redex=redex)
 
+    def name(self) -> str:
+        return OpxNum.NAME
+
 @dataclass(eq=False)
 class OpyNum(Interaction):
     NAME = 'OPYU32'
     def __init__(self, redex: Redex):
         super().__init__(redex=redex)
 
+    def name(self) -> str:
+        return OpyNum.NAME
+
 @dataclass(eq=False)
-class MatNum(Interaction, HasNodes):
+class MatNum(Interaction): # , HasNodes):
     NAME = 'MATU32'
     def __init__(self, redex: Redex):
         super().__init__(redex=redex)
+
+    def name(self) -> str:
+        return MatNum.NAME
 
     def first_loc(self) -> int:
         pass
@@ -193,3 +224,6 @@ class MatRef(Interaction):
     NAME = 'MATREF'
     def __init__(self, redex: Redex):
         super().__init__(redex=redex)
+
+    def name(self):
+        return MatRef.NAME

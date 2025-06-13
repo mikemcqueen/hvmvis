@@ -250,9 +250,9 @@ class RefManager:
             self.add_appref(app_ref, color_scheme)
     """
     
-    def draw_all(self, surface: pygame.Surface):
+    def draw_all(self):
         for rect in self.disp_rects:
-            rect.draw(surface, self.table)
+            rect.draw(self.screen, self.table)
 
     def get_selected(self) -> list[RefRect]:
         return [rect for rect in self.disp_rects if rect.selected]
