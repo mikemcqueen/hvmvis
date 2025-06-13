@@ -219,7 +219,7 @@ def event_loop(app_refs: list[ExpandRef]): # = make_example_apprefs()):
         screen.fill(BLACK)
         manager.draw_all(screen)
         
-        draw_instructions(screen)
+        #draw_instructions(screen)
         
         pygame.display.flip()
         clock.tick(30)

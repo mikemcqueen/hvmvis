@@ -10,10 +10,12 @@ sys.path.insert(0, root_dir)
 
 from claude_position import event_loop
 
+TermMap = dict[Term, NodeTerm]
+
 def make_memop(seq: int, parts: list[str]) -> MemOp:
     # Extract basic fields (ignoring counter at index 0)
     tid = int(parts[1])
-    itr = parts[2]
+    itr_name = parts[2]
     op = parts[3].strip()
     lvl = int(parts[4])
     lab = 0
@@ -50,7 +52,7 @@ def make_memop(seq: int, parts: list[str]) -> MemOp:
     return MemOp(
         seq=seq,
         tid=tid,
-        itr=itr,
+        itr_name=itr_name,
         op=op,
         lvl=lvl,
         put=put,
@@ -124,9 +126,6 @@ class RedexBuilder:
         else:
             print(f"popped -None-")
             return None
-
-    #def pop(self, neg_op: Term, pos: Term) -> Redex:
-    #    return self.redex_map[(neg, pos)]
         
 @dataclass(eq=False)
 class RefBuilder:
@@ -142,22 +141,22 @@ class RefBuilder:
     def done(self):
         if self.ref:
             assert self.ref.nodes
-            print(f"done, ref {self.ref.def_idx} redex {self.ref.redex}")
+            print(f"done, ref {self.ref.def_idx} {self.ref.redex}")
             self.ref = None
             
     def new(self, redex: Redex, loc: Optional[int] = None):
         assert not self.ref
         if not loc: loc = redex.pos.loc
-        self.ref = ExpandRef(loc, redex)
+        self.ref = AppRef(loc, redex)
         self.refs.append(self.ref)
         print(f"new {redex.neg.tag}{redex.pos.tag} def_idx: {loc}")
 
     def add(self, fst: MemOp, snd: MemOp):
-        # TODO move conditional out of builder, into parse loop
+        # TODO move conditional out of builder, into parse loop?
         #assert is_node_store(fst) and is_node_store(snd)
         if not self.ref:
             assert fst.is_root_itr() and snd.is_root_itr() and fst.put.tag == 'REF'
-            self.ref = ExpandRef(fst.put.loc)
+            self.ref = AppRef(fst.put.loc, None)
             self.refs.append(self.ref)
 
         print(f"adding node: {fst.put} {snd.put} @ {fst.loc}")
@@ -173,21 +172,50 @@ class RefBuilder:
         self.add_node_term(neg)
         self.add_node_term(pos)
 
-# TODO: some kind of support for "dynamic node store" op-pair, like in matnum
-def record_mem_op(term_map: TermMap, mem_op: MemOp, refs: list[ExpandRef]):
-    if mem_op.got and mem_op.got.has_loc():
-        node_term = term_map[mem_op.got]
-        node_term.loads.append(mem_op)
-    if mem_op.put and mem_op.put.has_loc():
-        # sometimes we materialize a new term out of thin air, e.g. matnum VAR;
-        # now's a good time to add it to the term_map
-        if not mem_op.put in term_map:
-            node = NodeProxy(ref_from_loc(refs, mem_op.put.loc))
-            node_term = NodeTerm(mem_op.put, node=node, stores=[mem_op])
-            term_map[mem_op.put] = node_term
-        else:
-            node_term = term_map[mem_op.put]
-            node_term.stores.append(mem_op)
+@dataclass(eq=False)
+class ItrBuilder:
+    term_map: TermMap
+    refs: list[ExpandRef]
+    itr: Optional[Interaction] = None
+    itrs: list[Interaction] = field(default_factory=list)
+
+    def make_itr(self, itr_name: str, redex: Redex):
+        match itr_name:
+            case AppLam.NAME: return AppLam(redex)
+            case MatRef.NAME: return MatRef(redex)
+            case MatNum.NAME: return MatNum(redex)
+            case OpxNum.NAME: return OpxNum(redex)
+            case OpyNum.NAME: return OpyNum(redex)
+            case DupNum.NAME: return DupNum(redex)
+            case _: raise RuntimeError(f"{redex.itr_name}")
+
+    def new(self, redex: Redex, itr_name: str):
+        assert not self.itr
+        self.itr = self.make_itr(itr_name, redex)
+        self.itrs.append(self.itr)
+        print(f"new {redex.neg.tag}{redex.pos.tag} itr")
+
+    def add(self, mem_op: MemOp):
+        if mem_op.got and mem_op.got.has_loc():
+            node_term = self.term_map[mem_op.got]
+            node_term.loads.append(mem_op)
+        if mem_op.put and mem_op.put.has_loc():
+            # sometimes we materialize a new term out of thin air, e.g. matnum VAR;
+            # now's a good time to add it to the term_map
+            if not mem_op.put in self.term_map:
+                node = NodeProxy(ref_from_loc(self.refs, mem_op.put.loc))
+                node_term = NodeTerm(mem_op.put, node=node, stores=[mem_op])
+                self.term_map[mem_op.put] = node_term
+            else:
+                node_term = self.term_map[mem_op.put]
+                node_term.stores.append(mem_op)
+
+    def done(self):
+        if self.itr:
+            #assert self.itr.memops
+            print(f"done, itr {self.itr.NAME} {self.itr.redex} ops {len(self.itr.memops)}")
+            self.itr = None
+
 
 def parse_log_file(file_content: str) -> (list[MemOp], list[Redex], list[ExpandRef]):
     mem_ops = []
@@ -205,10 +233,10 @@ def parse_log_file(file_content: str) -> (list[MemOp], list[Redex], list[ExpandR
 
     redex_bldr = RedexBuilder(term_map, refs)
     ref_bldr = RefBuilder(term_map, refs)
+    itr_bldr = ItrBuilder(term_map, refs)
     last_popped: Optional[Redex] = None
     
     ops_que = deque(mem_ops)
-
     
     while ops_que:
         fst = ops_que.popleft()
@@ -229,16 +257,16 @@ def parse_log_file(file_content: str) -> (list[MemOp], list[Redex], list[ExpandR
         
         # TODO: is_redex_pop(fst)
         if fst.op == 'POP':
+            itr_bldr.done()
             snd = ops_que.popleft()
-            assert fst.itr == snd.itr
+            assert fst.itr_name == snd.itr_name
             redex = redex_bldr.pop(fst, snd)
-            if redex:
-                last_popped = redex
-                if fst.is_appref_itr():
-                    ref_bldr.new(redex)
-                # TODO
-                #else:
-                #   itr_bldr.new(redex)
+            if not redex: continue
+            last_popped = redex
+            if fst.is_appref_itr():
+                ref_bldr.new(redex)
+            else:
+                itr_bldr.new(redex, fst.itr_name)
             continue
 
         print(f"{fst}")
@@ -253,9 +281,9 @@ def parse_log_file(file_content: str) -> (list[MemOp], list[Redex], list[ExpandR
 
         # at this point, it should just a "normal" memory operation, i.e., the
         # "meat" of an interaction.
-        record_mem_op(term_map, fst, refs)
+        itr_bldr.add(fst)
 
-    return (mem_ops, redex_bldr.redexes, refs)
+    return (mem_ops, redex_bldr.redexes, refs, itr_bldr.itrs)
 
 def parse_log_from_file(filename: str):
     try:
@@ -268,7 +296,7 @@ def parse_log_from_file(filename: str):
         import traceback
         traceback.print_exc()
 
-    return ([], [], [])
+    return ([], [], [], [])
 
 def sum_nodes(refs: list[ExpandRef]) -> int:
     return sum(len(a.nodes) for a in refs)
@@ -279,12 +307,12 @@ if __name__ == "__main__":
         sys.exit(1)
         
     filename = sys.argv[1]
-    (mem_ops, redexes, refs) = parse_log_from_file(filename)
+    (mem_ops, redexes, refs, itrs) = parse_log_from_file(filename)
     if not mem_ops:
         print(f"No memory operations loaded")
         sys.exit(1)
 
-    print(f"mem_ops: {len(mem_ops)} refs: {len(refs)} nodes: {sum_nodes(refs)} redexes: {len(redexes)}")
+    print(f"mem_ops {len(mem_ops)} itrs {len(itrs)} refs {len(refs)} nodes {sum_nodes(refs)} redexes {len(redexes)}")
     print(f"{[ref.def_idx for ref in refs]}")
     print(f"ref.def_idx < 7 or >= 1024: {sum(1 for ref in refs if ref.def_idx < 7 or ref.def_idx >= DefIdx.MAT)}")
     event_loop([ref for ref in refs if ref.def_idx < 7 or ref.def_idx >= DefIdx.MAT])

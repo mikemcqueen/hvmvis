@@ -285,32 +285,19 @@ class RefManager:
             # ref.redex is the redex as it originally occurred from within an
             # ExpandRef. The neg term of that redex likely originated somewhere
             # else (neg.stores[0]), and may have been stored and reloaded from
-            # other intermediate location(s) (neg.loads[]) since then. We want
-            # to know the loc (and consequently, ref) from which the neg term
-            # was *last* loaded.
+            # other intermediate location(s) (neg.loads[]) since then.
             #
-            # Well it's not so simple is it. Move/link shenanigans will swap it
-            # in to one location (store) then swap it back out (load), but that
-            # isn't really a load we care about. In other words, it seems like
-            # we want to ignore the link/move swaps. Anything with a level > 0
-            # perhaps?
-            #
-            # Maybe I just don't know enough to devise a general solution.
-            #
-            # The "Last load" workaround was specifically for getting APPREF
-            # <leaf> to recognize it came from MATU32 result <make-leaf>.
-            #
-            # Maybe I just need to hardcode that rule, and hardcode another
-            # rule for MATU32 emergent nodes.
+            # For <make_leaf> -> <leaf> we want to know the loc (and ref) from
+            # which the neg term  was *last* loaded.
             #
             neg = rect.ref.redex.neg
-            # 1st case: <leaf> depends on <make_leaf>
+            # TOOD: neg.tag constraint
             last_load = neg.loads and neg.loads[-1]
             if last_load and last_load.is_matnum_itr():
                 loc = last_load.loc
                 print(f"redex.neg last_load {last_load} loc {loc}")
 
-            # 2nd case: <matu32_NN> <- <make>
+            # For <make> -> <matu32_NN> we want...
             #
             # better approach
             # elif last_load.is_applam_itr():
@@ -321,11 +308,11 @@ class RefManager:
                 print(f"redex.neg MAT loc {neg.term} loc {loc}")
             else:
                 # fall back to the loc of the origin ref
-                loc = neg.node.ref.first_loc
+                loc = neg.node.ref.first_loc()
                 print(f"fall back redex.neg.node.ref {neg.node.ref.def_idx} first_loc {loc}")
 
             rect = self.rect_from_loc(loc)
-            print(f"rect from loc {loc} is {ref_name(rect.ref.def_idx)}")
+            print(f"rect from loc {loc} is {ref_name(rect.ref.def_idx) if rect else None}")
             if rect:
                 dep_rects.append(rect)
         return dep_rects
