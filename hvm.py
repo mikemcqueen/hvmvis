@@ -29,6 +29,7 @@ class Term(NamedTuple):
         return self.tag in NUM_TAGS
 
 EMPTY_TERM = Term(EMPTY_TAG, 0, 0)
+TAKEN_TERM = Term(TAKEN_TAG, 0, 0)
 
 @dataclass(eq=False)
 class MemOp:
@@ -63,6 +64,9 @@ class MemOp:
     def is_take(self) -> bool:
         return self.op == 'EXCH' and self.put.taken()
 
+    def is_swap(self) -> bool:
+        return self.op == 'EXCH' and not self.put.taken()
+
     def is_root_itr(self) -> bool:
         return self.itr_name == '______'
 
@@ -96,6 +100,9 @@ class NodeTerm:
     def lab(self): return self.term.lab
     @property
     def loc(self): return self.term.loc
+
+    @property
+    def store_loc(self): return self.stores[-1].loc
 
     def __repr__(self) -> str:
         return f"{self.term} {type(self.node).__name__}({self.node.ref.def_idx if self.node and self.node.ref else 'None'})"
@@ -134,17 +141,24 @@ class Node:
 
     def validate(self, loc: int):
         neg_loc = self.neg.stores[0].loc
-        assert loc in (neg_loc, neg_loc + 1)
+        assert loc in (neg_loc, neg_loc + 1), f"loc {loc} neg_loc {neg_loc}"
+
+    def replace_term(self, loc: int, term: Term):
+        self.validate(loc)
+        # late night hack. a store op is needed for rendering memory loc
+        # TODO first store? or last? shrug haven't thought it through
+        if loc == self.neg.stores[0].loc:
+            self.neg = NodeTerm(term, self, stores=[self.neg.stores[0]])
+        else:
+            self.pos = NodeTerm(term, self, stores=[self.pos.stores[0]])
 
     def take(self, loc: int):
-        self.validate(loc)
-        if loc == self.neg.stores[0].loc:
-            # late night hack
-            self.neg = NodeTerm(EMPTY_TERM, stores=[self.neg.stores[0]])
-        else:
-            self.pos = NodeTerm(EMPTY_TERM, stores=[self.pos.stores[0]])
+        self.replace_term(loc, TAKEN_TERM)
 
-    def term_at(self, loc: int):
+    def swap(self, loc: int):
+        self.replace_term(loc, EMPTY_TERM)
+
+    def term_at(self, loc: int) -> NodeTerm:
         self.validate(loc)
         return self.neg if loc == self.neg.stores[0].loc else self.pos
 

@@ -123,6 +123,7 @@ class ItrManager:
             # must call execute *after* animate
             self.execute(memop)
         else:
+            self.anim_mgr.anims = []
             self.itr_idx += 1
             self.op_idx = 0
             if self.done(): return False
@@ -137,3 +138,5 @@ class ItrManager:
     def execute(self, memop: MemOp):
         if memop.is_take():
             memop.node.take(memop.loc)
+        elif memop.is_swap():
+            memop.node.swap(memop.loc)

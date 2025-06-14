@@ -87,11 +87,6 @@ def event_handler(event, ref_mgr: RefManager, itr_mgr: ItrManager, anim_mgr: Ani
             itr_mgr.next()
         elif event.key == pygame.K_d:
             ref_mgr.toggle_show_dependencies()
-
-        # testing
-        elif event.key == pygame.K_t:
-            anim_mgr.swap(14, 38, ref_mgr.disp_rects)
-
         elif event.key == pygame.K_q:
             return False
     elif event.type == pygame.MOUSEBUTTONDOWN:

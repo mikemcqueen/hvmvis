@@ -1,9 +1,9 @@
 import pygame
 from dataclasses import dataclass
-from typing import Tuple
+from typing import Tuple, Optional
 
 from fonts import fonts
-from hvm import ExpandRef, DefIdx
+from hvm import ExpandRef, DefIdx, NodeTerm
 
 TITLE_FONT_SIZE = 14
 FONT_SIZE = 14
@@ -49,8 +49,15 @@ class RefRect:
     visible: bool = True
     
     def get_rect(self) -> pygame.Rect:
-        """Get pygame.Rect for collision detection and bounds checking."""
         return pygame.Rect(self.x, self.y, self.width, self.height)
+
+    def get_node_term(self, loc: int) -> Optional[NodeTerm]:
+        if not self.ref.contains(loc): return None
+        for node in self.ref.nodes:
+            for node_term in (node.pos, node.neg):
+                if loc == node_term.stores[0].loc:
+                    return node_term
+        return None
 
     def draw(self, surface: pygame.Surface, table: dict):
         if not self.visible: return
