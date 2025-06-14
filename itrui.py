@@ -1,8 +1,8 @@
 import pygame
 
-from anim import *
+from anim import AnimManager
 from fonts import fonts
-from refui import *
+from refui import RefManager
 from hvm import *
 
 ORANGE = (255, 165, 0)
@@ -12,11 +12,13 @@ YELLOW = (255, 255, 0)
 DIM_YELLOW = (192, 192, 0)
 
 class ItrManager:
-    def __init__(self, screen: pygame.Surface, itrs: list[Interaction], ref_mgr: RefManager, table: dict):
+    def __init__(self, screen: pygame.Surface, itrs: list[Interaction],
+                 ref_mgr: RefManager, anim_mgr: AnimManager, table: dict):
         self.screen = screen
         self.table = table
         self.itrs = itrs
         self.ref_mgr = ref_mgr
+        self.anim_mgr = anim_mgr
         self.itr_idx = 0
         self.op_idx = 0
         self.rect = self.init_rect(screen)
@@ -113,8 +115,14 @@ class ItrManager:
 
     def next(self):
         if self.done(): return False
+        itr = self.itrs[self.itr_idx];
+        memop = itr.memops[self.op_idx] if self.op_idx < len(itr.memops) else None
         self.op_idx += 1
-        if self.op_idx >= len(self.itrs[self.itr_idx].memops):
+        if memop:
+            self.anim_mgr.animate(memop)
+            # must call execute *after* animate
+            self.execute(memop)
+        else:
             self.itr_idx += 1
             self.op_idx = 0
             if self.done(): return False
@@ -125,3 +133,7 @@ class ItrManager:
                     self.ref_mgr.add_ref(itr, "dim terminal")
 
         return True
+
+    def execute(self, memop: MemOp):
+        if memop.is_take():
+            memop.node.take(memop.loc)

@@ -125,10 +125,11 @@ class RefRect:
                 for i, value in enumerate(values):
                     value_surface = font.render(value, True, text_color)
                     surface.blit(value_surface, (current_x, row_y))
+                    if term.empty(): # memory loc only for empty terms
+                        break
                     current_x += table['column_widths'][i]
                     if i < len(values) - 1:
                         current_x += table['col_spacing_by_index'][i + 1]
-
                 row_y += table['metrics']['line_height'] + table['row_spacing']['intra_row']
 
 class RefManager:
@@ -137,7 +138,7 @@ class RefManager:
         self.table = table
         self.all_rects: list[RefRect] = []
         self.disp_rects: list[RefRect] = []
-        self.ref_rect_map = {}
+        self.ref_map = {}
         self.show_deps_only: bool = False
         
     def calculate_ref_dimensions(self, ref: ExpandRef) -> Tuple[int, int]:
@@ -153,7 +154,7 @@ class RefManager:
     def _add_rect(self, rect: RefRect):
         self.all_rects.append(rect)
         self.disp_rects.append(rect)
-        self.ref_rect_map[rect.ref.id] = rect
+        self.ref_map[rect.ref.id] = rect
 
     def add_ref(self, ref: ExpandRef, color_scheme: str = "dim terminal") -> RefRect:
         width, height = self.calculate_ref_dimensions(ref)
@@ -163,6 +164,9 @@ class RefManager:
         self._add_rect(rect)
         return rect
     
+    def get_rect(self, ref: ExpandRef) -> RefRect:
+        return self.ref_map[ref.id] if ref.id in self.ref_map else None
+
     def _find_next_position(self, width: int, height: int) -> Tuple[int, int]:
         if not self.all_rects:
             return self.table['layout']['left_margin'], self.table['layout']['top_margin']

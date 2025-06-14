@@ -110,8 +110,8 @@ def event_loop(itrs: list[Interaction]):
     table = get_table_metrics()
     
     ref_mgr = RefManager(screen, table)
-    itr_mgr = ItrManager(screen, itrs, ref_mgr, table)
-    anim_mgr = AnimManager(screen, table)
+    anim_mgr = AnimManager(screen, ref_mgr, table)
+    itr_mgr = ItrManager(screen, itrs, ref_mgr, anim_mgr, table)
     
     if itrs:
         ref_mgr.add_ref(itrs[0], "dim terminal")
@@ -120,7 +120,7 @@ def event_loop(itrs: list[Interaction]):
     
     running = True
     while running:
-        current_time = time.time()
+        current_time = time.monotonic()
         
         for event in pygame.event.get():
             if not event_handler(event, ref_mgr, itr_mgr, anim_mgr):

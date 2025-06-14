@@ -77,6 +77,16 @@ def ref_from_loc(refs: list[ExpandRef], loc: int):
     print(f"No ref for loc {loc}")
     return None
 
+def node_from_loc(refs: list[ExpandRef], loc: int):
+    ref = ref_from_loc(refs, loc)
+    if not ref: return None
+    for node in ref.nodes:
+        node_loc = node.neg.stores[0].loc
+        if loc in (node_loc, node_loc + 1):
+            return node
+    print(f"No node for loc {loc}")
+    return None
+
 @dataclass(eq=False)
 class RedexBuilder:
     term_map: TermMap
@@ -198,8 +208,8 @@ class ItrBuilder:
             node_term = self.term_map[memop.got]
             node_term.loads.append(memop)
         if memop.put and memop.put.has_loc():
-            # sometimes we materialize a new term out of thin air, e.g. matnum VAR;
-            # now's a good time to add it to the term_map
+            # sometimes a new term is materialized out of thin air, e.g. VAR
+            # in matnum; # now's a good time to add it to the term_map
             if not memop.put in self.term_map:
                 node = NodeProxy(ref_from_loc(self.refs, memop.put.loc))
                 node_term = NodeTerm(memop.put, node=node, stores=[memop])
@@ -207,8 +217,8 @@ class ItrBuilder:
             else:
                 node_term = self.term_map[memop.put]
                 node_term.stores.append(memop)
+        memop.node = node_from_loc(self.refs, memop.loc)
         self.itr.memops.append(memop)
-            
 
     def done(self):
         if self.itr:
@@ -216,8 +226,8 @@ class ItrBuilder:
             print(f"done, itr {self.itr.NAME} {self.itr.redex} ops {len(self.itr.memops)}")
             self.itr = None
 
-
-def parse_log_file(file_content: str) -> (list[MemOp], list[Redex], list[ExpandRef]):
+def parse_log_file(file_content: str) -> (list[MemOp], list[Redex],
+                                          list[ExpandRef], list[Interaction]):
     memops = []
     lines = file_content.strip().split('\n')
     for line in lines:

@@ -1,11 +1,11 @@
 import pygame
 import time
-from typing import List, Tuple, Optional, TypeVar, Generic
+from typing import List, Tuple, Optional, TypeVar, Generic, NamedTuple
 from dataclasses import dataclass
 
 #from claude_appref9 import *
 from hvm import AppRef, Node, NodeTerm, MemOp, Term
-from refui import *
+from refui import * #RefManager, RefRect
 from fonts import fonts
 
 """
@@ -31,7 +31,8 @@ durations: dict[str, float] = {
     'slide_over': 0.5,
     'pause_in' :  0.0,
     'slide_in':   0.3,
-    'fade_out':   0.0
+    'fade_out':   0.2,
+    'wait':       0.0
 }
 
 ANIM_DURATION = (
@@ -46,15 +47,32 @@ ANIM_DURATION = (
 
 Color = Tuple[int, int, int]
 
+class Phase(NamedTuple):
+    name: str
+    duration: float
+    total: float
+
+    @classmethod
+    def make_list(cls, *names: str) -> list['Phase']:
+        result = []
+        total = 0.0
+        for name in names:
+            duration = durations[name]
+            total += duration
+            result.append(cls(name, duration, total))
+        return result
+
 @dataclass
 class AnimationState:
     from_mem_loc: int
     to_mem_loc: int
-    term_data: Tuple[str, str, str]  # (tag, lab, loc)
+    term: NodeTerm
+    #term_data: Tuple[str, str, str]  # (tag, lab, loc)
     
     # Animation timing
     start_time: float
-    phase: str  # 'fade_in', 'slide_out', 'slide_over', 'slide_in', 'fade_out', 'complete'
+    phases: Tuple[Phase]
+    phase: int
     
     # Position tracking (includes cross-AppRef movement)
     from_appref_pos: Tuple  # (RefRect, row_y)
@@ -83,10 +101,19 @@ def interpolate_color(color1: Color, color2: Color, t: float) -> Color:
     )
 
 class AnimManager:
-    def __init__(self, screen: pygame.Surface, table: dict):
+    def __init__(self, screen: pygame.Surface, ref_mgr: RefManager, table: dict):
         self.screen = screen
+        self.ref_mgr = ref_mgr
         self.table = table
         self.anims: List[AnimationState] = []
+
+    def slide_right_distance(self) -> int:
+        return (
+            self.table['term_width'] +
+            self.table['col_spacing']['margin'] +
+            self.table['table_border_thickness'] +
+            self.table['metrics']['char_width']
+        )
 
     def get_row_position(self, rect: RefRect, loc: int) -> Optional[int]:
         for i, node in enumerate(rect.ref.nodes):
@@ -107,33 +134,106 @@ class AnimManager:
                     return (rect, row_y)
         return None
 
-    def get_term_data_at_location(self, rects: list[RefRect],
-                                  loc: int) -> Optional[Tuple[str, str, str]]:
+    def get_node_term_at_loc(self, rects: list[RefRect], loc: int) -> Optional[NodeTerm]:
         for rect in rects:
             if not rect.ref.contains(loc): continue
             for i, node in enumerate(rect.ref.nodes):
                 for j, node_term in enumerate((node.pos, node.neg)):
-                    term_loc = node_term.stores[0].loc
-                    if term_loc == loc:
-                        term = node_term.term
-                        return (term.tag[:3], f"{term.lab:03d}", f"{term.loc:04d}")
+                    if loc == node_term.stores[0].loc:
+                        return node_term
         return None
 
+
+    def update_state(self, anim: AnimationState, current_time: float) -> bool:
+        phase = anim.phases[anim.phase]
+        if phase.name == 'wait':
+            return False        
+
+        elapsed = current_time - anim.start_time
+
+        phase_start = phase.total - phase.duration
+        phase_elapsed = elapsed - phase_start
+        
+        # Check if we need to advance to next phase
+        if phase_elapsed >= phase.duration:
+            # Move to next phase if available
+            if anim.phase + 1 < len(anim.phases):
+                anim.phase += 1
+                phase = anim.phases[anim.phase]
+                if phase.name == 'wait':
+                    return False              
+                phase_start = phase.total - phase.duration
+                phase_elapsed = elapsed - phase_start
+            else:
+                anim.phase = len(anim.phases)
+                return True
+
+        t = phase_elapsed / phase.duration
+    
+        slide_distance = self.slide_right_distance()
+    
+        # Apply phase-specific transformations
+        phase_name = phase.name
+    
+        if phase_name == 'fade_in':
+            anim.color = interpolate_color(anim.color, BRIGHT_GREEN, t)
+        
+        elif phase_name == 'slide_out':
+            t_eased = ease_in_out_cubic(t)
+            # Slide out beyond table boundary
+            anim.current_x = anim.target_x + (slide_distance * t_eased)
+            anim.color = BRIGHT_GREEN
+        
+        elif phase_name == 'slide_over':
+            t_eased = ease_in_out_cubic(t)
+            # Calculate vertical movement between AppRef positions
+            from_rect, _ = anim.from_appref_pos
+            to_rect, _ = anim.to_appref_pos
+            
+            from_y = self.get_row_position(from_rect, anim.from_mem_loc)
+            to_y = self.get_row_position(to_rect, anim.to_mem_loc)
+            
+            if from_y is not None and to_y is not None:
+                anim.current_y = from_y + (to_y - from_y) * t_eased
+        
+                # Keep X position at slide distance during vertical movement
+                anim.current_x = anim.target_x + slide_distance
+                anim.color = BRIGHT_GREEN
+        
+        elif phase_name == 'pause_in':
+            # Hold position during pause
+            anim.current_x = anim.target_x + slide_distance
+            anim.color = BRIGHT_GREEN
+        
+        elif phase_name == 'slide_in':
+            t_eased = ease_in_out_cubic(t)
+            # Slide back in from the table boundary
+            anim.current_x = (anim.target_x + slide_distance) + (-slide_distance * t_eased)
+        
+        elif phase_name == 'fade_out':
+            # Fade to final color or transparency
+            anim.color = interpolate_color(BRIGHT_GREEN, DIM_GREEN, t)
+            
+        elif phase_name == 'wait':
+            # Hold current state indefinitely
+            pass
+    
+        # Animation continues
+        return False
+
+
+    """
     def update_state(self, anim: AnimationState, current_time: float) -> bool:
         elapsed = current_time - anim.start_time
     
-        # Calculate slide distance - just outside table boundary (2-3 character widths)
-        slide_distance = (
-            self.table['term_width'] + self.table['col_spacing']['margin'] +
-            self.table['metrics']['char_width'] 
-        )
+        slide_distance = SLIDE_RIGHT_DISTANCE
     
         # Phase transitions
         if elapsed < durations['fade_in']:
             anim.phase = 'fade'
             t = elapsed / durations['fade_in']
             # Fade from original color to bright green
-            original_color = DIM_GREEN if 'DIM' in str(anim.color) else BRIGHT_GREEN
+            original_color = DIM_GREEN if 'dim' in str(anim.color) else BRIGHT_GREEN
             anim.color = interpolate_color(original_color, BRIGHT_GREEN, t)
         
         elif elapsed < durations['fade_in'] + durations['slide_out']:
@@ -190,10 +290,11 @@ class AnimManager:
             return True
     
         return False
+    """
 
     def draw_animated_term(self, surface: pygame.Surface, anim: AnimationState, 
                            font: pygame.font.Font):
-        if anim.phase == 'complete':
+        if anim.phase == len(anim.phases):
             return
     
         # Calculate column positions for TAG, LAB, LOC (skip MEM column)
@@ -211,7 +312,8 @@ class AnimManager:
                 current_x += self.table['col_spacing_by_index'][i + 1]
     
         # Draw each field of the term (TAG, LAB, LOC)
-        for i, (value, col_x) in enumerate(zip(anim.term_data, col_positions)):
+        term_data = (anim.term.tag[:3], f"{anim.term.lab:03d}", f"{anim.term.loc:04d}")
+        for i, (value, col_x) in enumerate(zip(term_data, col_positions)):
             text_surface = font.render(value, True, anim.color)
         
             # Apply animation offset
@@ -235,25 +337,53 @@ class AnimManager:
             return None
         
         # Get term data at the source location
-        term_data = self.get_term_data_at_location(rects, from_loc)
-        if term_data is None:
-            print(f"No term data found at memory location {from_loc}")
+        term = self.get_node_term_at_loc(rects, from_loc)
+        if term is None:
+            print(f"No term found at memory location {from_loc}")
             return None
     
         # Create animation state
         anim = AnimationState(
             from_mem_loc=from_loc,
             to_mem_loc=to_loc,
-            term_data=term_data,
-            start_time=time.time(),
-            phase='fade',
+            term=term,
+            #term_data=term_data,
+            start_time=time.monotonic(),
+            phases=Phase.make_list('fade_in', 'slide_out', 'wait'),
+            phase=0,
             from_appref_pos=from_info,
             to_appref_pos=to_info,
             current_x=from_info[0].x + self.table['col_spacing']['mem_term'],  # Start at TAG column
             current_y=from_info[1],  # Start row Y
             target_x=to_info[0].x + self.table['col_spacing']['mem_term'],   # Will be updated during animation
             target_y=to_info[1],     # Target row Y
-            color=DIM_GREEN if "DIM" in color_scheme else BRIGHT_GREEN
+            color=DIM_GREEN if 'dim' in color_scheme else BRIGHT_GREEN
+        )
+        return anim
+
+    def slide_out(self, term: NodeTerm, rect: RefRect, loc: int):
+        start_y = self.get_row_position(rect, loc)
+        if start_y is None:
+            print(f"slide_out: row position for {loc} not found")
+            return None
+
+        start_x = rect.x + self.table['col_spacing']['mem_term']
+
+        # Create animation state
+        anim = AnimationState(
+            from_mem_loc=loc,
+            to_mem_loc=0,
+            term=term,
+            start_time=time.monotonic(),
+            phases=Phase.make_list('fade_in', 'slide_out', 'wait'),
+            phase=0,
+            from_appref_pos=(rect, 0),
+            to_appref_pos=(None, 0),
+            current_x=start_x,
+            current_y=start_y,
+            target_x=start_x,   # Will be updated during animation
+            target_y=start_y,
+            color=DIM_GREEN # TODO, if not rect.selected else BRIGHT_GREEN
         )
         return anim
 
@@ -265,10 +395,24 @@ class AnimManager:
             if anim.phase != 'complete':
                 self.draw_animated_term(self.screen, anim, fonts.content)
 
-    def swap(self, from_loc: int, to_loc: int, rects: list[RefRect]) -> AnimationState:
+    def swap(self, from_loc: int, to_loc: int, rects: list[RefRect]):
         anim = self.move_term_animated(rects, from_loc, to_loc)
         if anim:
             self.anims.append(anim)
+
+    def take(self, memop: MemOp):
+        rect = self.ref_mgr.get_rect(memop.node.ref)
+        # this check is necessary as long as i allow 'executing' memops that refer
+        # refs that were not provided to ref_mgr (such as @sum)
+        if rect:
+            term = memop.node.term_at(memop.loc)
+            anim = self.slide_out(term, rect, memop.loc)
+            if anim:
+                self.anims.append(anim)
+
+    def animate(self, memop: MemOp):
+        if memop.is_take():
+            self.take(memop)
 
 # Simple event loop integration example
 def create_animated_example(screen, app_refs):
@@ -287,7 +431,7 @@ def create_animated_example(screen, app_refs):
     
     running = True
     while running:
-        current_time = time.time()
+        current_time = time.monotonic()
         
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
