@@ -1,6 +1,7 @@
-import pygame
 from dataclasses import dataclass
 from typing import Tuple, Optional
+
+import pygame
 
 from fonts import fonts
 from hvm import ExpandRef, DefIdx, NodeTerm
@@ -24,7 +25,7 @@ def ref_name(def_idx: int):
         1: "leaf",
         2: "main",
         3: "make",
-        4: "make_leaf", 
+        4: "make_leaf",
         5: "make_node",
         6: "node",
         7: "sum",
@@ -47,7 +48,7 @@ class RefRect:
     color_scheme: str = "dim terminal"
     selected: bool = False
     visible: bool = True
-    
+
     def get_rect(self) -> pygame.Rect:
         return pygame.Rect(self.x, self.y, self.width, self.height)
 
@@ -73,37 +74,37 @@ class RefRect:
             border_color = DIM_GREEN
             line_color = DIM_GREEN
         else:  # soft
-            text_color = LIGHT_CYAN
+            text_color = WHITE
             header_color = WHITE
-            border_color = LIGHT_CYAN
-            line_color = LIGHT_CYAN
-    
+            border_color = WHITE
+            line_color = WHITE
+
         title_font = fonts.title
         font = fonts.content
-    
+
         # Draw background
         pygame.draw.rect(surface, BLACK, (self.x, self.y, self.width, self.height))
-    
+
         # Draw border
         border_rect = pygame.Rect(self.x, self.y, self.width, self.height)
         pygame.draw.rect(surface, border_color, border_rect, table['table_border_thickness'])
-    
+
         # Draw title with background to clip the border
         title_surface = title_font.render(ref_name(self.ref.def_idx), True, header_color)
         title_width = title_surface.get_width()
         title_x = self.x + (self.width - title_width) // 2
         title_y = self.y - title_font.get_height() // 2
-    
+
         title_bg_rect = pygame.Rect(title_x - 5, title_y, title_width + 10, title_font.get_height())
         pygame.draw.rect(surface, BLACK, title_bg_rect)
         surface.blit(title_surface, (title_x, title_y))
-    
+
         # Column headers
         headers = ["MEM", "TAG", "LAB", "LOC"]
         title_bottom = title_y + table['title_metrics']['line_height']
         header_y = title_bottom + table['row_spacing']['title_to_header']
         current_x = self.x + table['col_spacing']['margin']
-    
+
         for i, header in enumerate(headers):
             header_surface = font.render(header, True, header_color)
             surface.blit(header_surface, (current_x, header_y))
@@ -116,9 +117,9 @@ class RefRect:
         line_left = self.x + table['col_spacing']['margin']
         line_right = self.x + self.width - table['col_spacing']['margin']
         pygame.draw.line(surface, line_color, (line_left, line_y), (line_right, line_y), 1)
-        
+
         # Draw data rows
-        row_y = line_y + 1 + table['row_spacing']['margin'] 
+        row_y = line_y + 1 + table['row_spacing']['margin']
         for node in self.ref.nodes:
             for term in (node.neg, node.pos):
                 mem_loc = term.stores[0].loc
@@ -147,12 +148,12 @@ class RefManager:
         self.disp_rects: list[RefRect] = []
         self.ref_map = {}
         self.show_deps_only: bool = False
-        
+
     def calculate_ref_dimensions(self, ref: ExpandRef) -> Tuple[int, int]:
         width = self.table['width']
         num_ops = len(ref.nodes) * 2
         height = (
-            self.table['table_header_height'] + self.table['row_spacing']['margin'] * 2 + 
+            self.table['table_header_height'] + self.table['row_spacing']['margin'] * 2 +
             num_ops * (self.table['metrics']['line_height'] + self.table['row_spacing']['intra_row']) -
             self.table['row_spacing']['intra_row'] + self.table['table_border_thickness']
         )
@@ -166,38 +167,38 @@ class RefManager:
     def add_ref(self, ref: ExpandRef, color_scheme: str = "dim terminal") -> RefRect:
         width, height = self.calculate_ref_dimensions(ref)
         x, y = self._find_next_position(width, height)
-        
+
         rect = RefRect(ref, x, y, width, height, color_scheme)
         self._add_rect(rect)
         return rect
-    
+
     def get_rect(self, ref: ExpandRef) -> RefRect:
         return self.ref_map[ref.id] if ref.id in self.ref_map else None
 
     def _find_next_position(self, width: int, height: int) -> Tuple[int, int]:
         if not self.all_rects:
             return self.table['layout']['left_margin'], self.table['layout']['top_margin']
-        
+
         # Try to place under last ref
         last_rect = self.all_rects[-1]
         potential_y = last_rect.y + last_rect.height + self.table['layout']['vert_spacing']
-            
+
         # Check if it fits vertically and doesn't exceed screen bounds
         if potential_y + height <= self.screen.get_height():
             return last_rect.x, potential_y
-        
+
         # No room in last column, create a new column
         new_column_x = last_rect.x + last_rect.width + self.table['layout']['horz_spacing']
-        
+
         # Check if new column fits horizontally
         if new_column_x + width <= self.screen.get_width():
             return new_column_x, self.table['layout']['top_margin']
-        
+
         # If we can't fit horizontally, wrap to a new "row" of columns
         # This is a fallback - you might want to handle this differently
         # TODO
         raise RuntimeError("ran out of screen space")
-    
+
     """
     def remove_appref(self, app_ref: AppRef) -> bool:
         for i, rect in enumerate(self.app_ref_rects):
@@ -206,13 +207,13 @@ class RefManager:
                 return True
         return False
     """
-    
+
     def get_rect_at_position(self, x: int, y: int) -> RefRect:
         for rect in self.disp_rects:
             if rect.get_rect().collidepoint(x, y):
                 return rect
         return None
-    
+
     """
     def reposition_all(self):
         if not self.disp_app_refs:
@@ -222,7 +223,7 @@ class RefManager:
         for app_ref, color_scheme in app_refs_data:
             self.add_appref(app_ref, color_scheme)
     """
-    
+
     def draw_all(self):
         for rect in self.disp_rects:
             rect.draw(self.screen, self.table)
@@ -231,14 +232,14 @@ class RefManager:
         return [rect for rect in self.disp_rects if rect.selected]
 
     def only_rects_visible(self, rects: list[RefRect]):
-        map = {}
+        d = {}
         for rect in rects:
-            map[rect.ref.id] = rect
+            d[rect.ref.id] = rect
 
         # hide all non-selected that aren't in supplied rects
         for rect in self.all_rects:
             if not rect.selected:
-                rect.visible = rect.ref.id in map
+                rect.visible = rect.ref.id in d
             else:
                 assert rect.visible
 

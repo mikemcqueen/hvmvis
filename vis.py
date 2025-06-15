@@ -1,10 +1,9 @@
-import pygame
-from dataclasses import dataclass
 import time
-from typing import List, Tuple, Generic, TypeVar
+
+import pygame
 
 from fonts import fonts, get_font_metrics
-from hvm import ExpandRef, Node, NodeTerm, MemOp, Term, Interaction
+from hvm import Interaction
 from refui import *
 from itrui import ItrManager
 from anim import AnimManager
@@ -101,35 +100,35 @@ def event_loop(itrs: list[Interaction]):
     screen = pygame.display.set_mode((1850, 1024))
     pygame.display.set_caption("HVM Vis")
     clock = pygame.time.Clock()
-    
+
     table = get_table_metrics()
-    
+
     ref_mgr = RefManager(screen, table)
     anim_mgr = AnimManager(screen, ref_mgr, table)
     itr_mgr = ItrManager(screen, itrs, ref_mgr, anim_mgr, table)
-    
+
     if itrs:
         ref_mgr.add_ref(itrs[0], "dim terminal")
-    
+
     pygame.key.set_repeat(500, 50)
-    
+
     running = True
     while running:
         current_time = time.monotonic()
-        
+
         for event in pygame.event.get():
             if not event_handler(event, ref_mgr, itr_mgr, anim_mgr):
                 running = False
-        
+
         screen.fill(BLACK)
-        
+
         draw_instructions(screen, table)
-        
+
         ref_mgr.draw_all()
         anim_mgr.update_all(current_time)
         anim_mgr.draw_all()
         itr_mgr.draw()
-        
+
         pygame.display.flip()
         clock.tick(30)
 

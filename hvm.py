@@ -1,7 +1,7 @@
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from enum import IntEnum
-from typing import ClassVar, NamedTuple, Optional
+from typing import NamedTuple, Optional
 
 HAS_LOC_TAGS = {'VAR', 'LAM', 'APP', 'SUP', 'DUP', 'OPX', 'OPY', 'MAT'}
 NUM_TAGS = {'U32', 'I32', 'F32'}
@@ -31,6 +31,9 @@ class Term(NamedTuple):
 EMPTY_TERM = Term(EMPTY_TAG, 0, 0)
 TAKEN_TERM = Term(TAKEN_TAG, 0, 0)
 
+class MemOpProxy(NamedTuple):
+    loc: int
+
 @dataclass(eq=False)
 class MemOp:
     seq: int
@@ -41,25 +44,28 @@ class MemOp:
     put: Optional[Term]
     got: Optional[Term]
     loc: int
+    # a MemOp occurs within the memory of a Node: MemOp.loc is either the loc
+    # Node.neg or the loc of Node.pos
     node: Optional['Node'] = None
-    #ref: Optional['ExpandRef'] = None
-    #itr: Optional['Interaction'] = None
-    
+    # a MemOp originates from an interaction. Often, but not always, the same
+    # as node.ref.
+    itr: Optional['Interaction'] = None
+
     def __repr__(self) -> str:
         if self.op == 'EXCH':
             return f"{self.tid},{self.itr_name},{self.op},{self.lvl},{self.got.tag},{self.got.loc},{self.put.tag},{self.put.loc},{self.loc}"
-        elif self.op == 'POP' or self.op == 'LOAD':
+        if self.op in ('POP', 'LOAD'):
             return f"{self.tid},{self.itr_name},{self.op},{self.lvl},{self.got.tag},{self.got.loc},{self.loc}"
-        else: # self.op == 'STOR'
-            return f"{self.tid},{self.itr_name},{self.op},{self.lvl},{self.put.tag},{self.put.loc},{self.loc}"
+        # self.op == 'STOR'
+        return f"{self.tid},{self.itr_name},{self.op},{self.lvl},{self.put.tag},{self.put.loc},{self.loc}"
 
     def __str__(self) -> str:
         if self.op == 'EXCH':
             return f"{self.op},{self.lvl},{self.got.tag},{self.got.loc},{self.put.tag},{self.put.loc},{self.loc}"
-        elif self.op == 'POP' or self.op == 'LOAD':
+        if self.op in ('POP', 'LOAD'):
             return f"{self.op},{self.lvl},{self.got.tag},{self.got.loc},{self.loc}"
-        else: # self.op == 'STOR'
-            return f"{self.op},{self.lvl},{self.put.tag},{self.put.loc},{self.loc}"
+        # self.op == 'STOR'
+        return f"{self.op},{self.lvl},{self.put.tag},{self.put.loc},{self.loc}"
 
     def is_take(self) -> bool:
         return self.op == 'EXCH' and self.put.taken()
@@ -90,9 +96,9 @@ class NodeTerm:
 
     term: Term
     node: Optional['Node | NodeProxy'] = None
-    kind: Optional[Kind] = None
+    #kind: Optional[Kind] = None
     loads: list[MemOp] = field(default_factory=list)
-    stores: list[MemOp] = field(default_factory=list)
+    stores: list[MemOp | MemOpProxy] = field(default_factory=list)
 
     @property
     def tag(self): return self.term.tag
@@ -100,9 +106,8 @@ class NodeTerm:
     def lab(self): return self.term.lab
     @property
     def loc(self): return self.term.loc
-
     @property
-    def store_loc(self): return self.stores[0].loc
+    def mem_loc(self): return self.stores[0].loc
 
     def __repr__(self) -> str:
         return f"{self.term} {type(self.node).__name__}({self.node.ref.def_idx if self.node and self.node.ref else 'None'})"
@@ -113,28 +118,19 @@ class NodeTerm:
 @dataclass(eq=False)
 class Redex:
     # These are stored as NodeTerms for convenience, to assist looking up the
-    # origin node or last node that a term was stored to/loaded from.
-    # However, that information isn't available for all terms, in which case
-    # this is just a thin wrapper around a Term with empty load/store lists.
-    # The alternative would be to store simple Terms here, and pass around a
-    # TermMap anywhere we needed to do a lookup.
+    # origin node of a push/pop operation.
     neg: NodeTerm
     pos: NodeTerm
-
-    #def __repr__(self) -> str:
-    #return f"{self.neg.term} {self.pos.term}"
 
 @dataclass(eq=False)
 class NodeProxy:
     ref: 'ExpandRef'
-    #itr: 'Interaction'
 
 @dataclass(eq=False)
 class Node:
     neg: NodeTerm
     pos: NodeTerm
     ref: 'ExpandRef'
-    #itr: 'Interaction'
     # this might make sense
     #parent: Optional[Node]
     #child: Optional[Node]
@@ -143,27 +139,27 @@ class Node:
         neg_loc = self.neg.stores[0].loc
         assert loc in (neg_loc, neg_loc + 1), f"loc {loc} neg_loc {neg_loc}"
 
-    def replace_term(self, loc: int, term: Term):
+    def set_term_at(self, loc: int, term: Term):
         self.validate(loc)
-        # late night hack. a store op is needed for rendering memory loc
-        # TODO first store? or last? shrug haven't thought it through
-        if loc == self.neg.stores[0].loc:
-            self.neg = NodeTerm(term, self, stores=[self.neg.stores[0]])
+        memop = MemOpProxy(loc)
+        if loc == self.neg.mem_loc:
+            self.neg = NodeTerm(term, self, stores=[memop])
         else:
-            self.pos = NodeTerm(term, self, stores=[self.pos.stores[0]])
+            self.pos = NodeTerm(term, self, stores=[memop])
+
+    def get_term_at(self, loc: int) -> NodeTerm:
+        self.validate(loc)
+        return self.neg if loc == self.neg.mem_loc else self.pos
 
     def take(self, loc: int):
-        self.replace_term(loc, TAKEN_TERM)
+        self.set_term_at(loc, TAKEN_TERM)
 
     def swap(self, loc: int):
-        self.replace_term(loc, EMPTY_TERM)
+        self.set_term_at(loc, EMPTY_TERM)
 
-    def term_at(self, loc: int) -> NodeTerm:
-        self.validate(loc)
-        return self.neg if loc == self.neg.stores[0].loc else self.pos
 
 class DefIdx(IntEnum):
-    MAT=1024
+    MAT = 1024
 
 class HasNodes(ABC):
     @abstractmethod
@@ -175,7 +171,7 @@ class HasNodes(ABC):
         pass
 
     def contains(self, loc: int):
-        return loc >= self.first_loc() and loc <= self.last_loc()
+        return self.first_loc() <= loc <= self.last_loc()
 
 @dataclass(eq=False, kw_only=True)
 class Interaction(ABC):
@@ -197,7 +193,7 @@ class ExpandRef(Interaction, HasNodes):
     def __repr__(self) -> str:
         return f"def_idx: {self.def_idx} {self.redex}"
 
-    def name() -> str:
+    def name(self) -> str:
         pass
 
     def first_loc(self) -> int:
@@ -259,14 +255,6 @@ class MatNum(ExpandRef):
 
     def name(self) -> str:
         return MatNum.NAME
-
-    """
-    def first_loc(self) -> int:
-        pass
-
-    def last_loc(self) -> int:
-        pass
-    """
 
 @dataclass(eq=False)
 class MatRef(Interaction):

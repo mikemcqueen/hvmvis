@@ -32,15 +32,15 @@ class ItrManager:
             width,
             height
         )
-        
+
     def draw_header(self, surface: pygame.Surface, itr: Interaction):
         # Draw background
         pygame.draw.rect(surface, BLACK, self.rect) # (self.x, self.y, self.width, self.height))
-    
+
         # Draw border
         #border_rect = pygame.Rect(self.x, self.y, self.width, self.height)
         #pygame.draw.rect(surface, border_color, border_rect, table['table_border_thickness'])
-    
+
         """
         # Draw title with background to clip the border
         title_surface = title_font.render(ref_name(self.ref.def_idx), True, header_color)
@@ -58,7 +58,7 @@ class ItrManager:
         header_y = title_bottom + table['row_spacing']['title_to_header']
         current_x = self.x + table['col_spacing']['margin']
         """
-    
+
         title_font = fonts.title
 
         header_color = ORANGE
@@ -78,7 +78,7 @@ class ItrManager:
             y += self.table['metrics']['line_height'] + self.table['row_spacing']['intra_row']
             surf = title_font.render(text2, True, header_color)
             self.screen.blit(surf, (x, y))
-            
+
 
         # Draw horizontal line under headers
         #line_y = header_y + table['metrics']['line_height'] + table['row_spacing']['header_to_line']
@@ -97,8 +97,8 @@ class ItrManager:
         for i, memop in enumerate(memops):
             text = f"{memop}"
             color = sel_text_color if i == self.op_idx else text_color
-            surf = font.render(text, True, color)
-            self.screen.blit(surf, (x, y))
+            text_surface = font.render(text, True, color)
+            surface.blit(text_surface, (x, y))
             y += self.table['metrics']['line_height'] + self.table['row_spacing']['intra_row']
 
     def done(self):
@@ -115,7 +115,7 @@ class ItrManager:
 
     def next(self):
         if self.done(): return False
-        itr = self.itrs[self.itr_idx];
+        itr = self.itrs[self.itr_idx]
         memop = itr.memops[self.op_idx] if self.op_idx < len(itr.memops) else None
         self.op_idx += 1
         if memop:
