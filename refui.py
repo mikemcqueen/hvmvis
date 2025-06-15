@@ -268,7 +268,7 @@ class RefManager:
             last_load = neg.loads and neg.loads[-1]
             if last_load and last_load.is_matnum_itr():
                 loc = last_load.loc
-                print(f"redex.neg last_load {last_load} loc {loc}")
+                #print(f"redex.neg last_load {last_load} loc {loc}")
 
             # For <make> -> <matu32_NN> we want...
             #
@@ -278,14 +278,14 @@ class RefManager:
             #     loc = last_load.itr.redex.pos.loc
             elif neg.tag == 'MAT':
                 loc = neg.loc
-                print(f"redex.neg MAT loc {neg.term} loc {loc}")
+                #print(f"redex.neg MAT loc {neg.term} loc {loc}")
             else:
                 # fall back to the loc of the origin ref
                 loc = neg.node.ref.first_loc()
-                print(f"fall back redex.neg.node.ref {neg.node.ref.def_idx} first_loc {loc}")
+                #print(f"fall back redex.neg.node.ref {neg.node.ref.def_idx} first_loc {loc}")
 
             rect = self.rect_from_loc(loc)
-            print(f"rect from loc {loc} is {ref_name(rect.ref.def_idx) if rect else None}")
+            #print(f"rect from loc {loc} is {ref_name(rect.ref.def_idx) if rect else None}")
             if rect:
                 dep_rects.append(rect)
         return dep_rects

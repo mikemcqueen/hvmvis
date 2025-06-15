@@ -102,7 +102,7 @@ class NodeTerm:
     def loc(self): return self.term.loc
 
     @property
-    def store_loc(self): return self.stores[-1].loc
+    def store_loc(self): return self.stores[0].loc
 
     def __repr__(self) -> str:
         return f"{self.term} {type(self.node).__name__}({self.node.ref.def_idx if self.node and self.node.ref else 'None'})"
@@ -252,19 +252,21 @@ class OpyNum(Interaction):
         return OpyNum.NAME
 
 @dataclass(eq=False)
-class MatNum(Interaction): # , HasNodes):
+class MatNum(ExpandRef):
     NAME = 'MATU32'
     def __init__(self, redex: Redex):
-        super().__init__(redex=redex)
+        super().__init__(redex=redex, def_idx=DefIdx.MAT)
 
     def name(self) -> str:
         return MatNum.NAME
 
+    """
     def first_loc(self) -> int:
         pass
 
     def last_loc(self) -> int:
         pass
+    """
 
 @dataclass(eq=False)
 class MatRef(Interaction):

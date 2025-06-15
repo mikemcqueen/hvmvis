@@ -24,8 +24,8 @@ class ItrManager:
         self.rect = self.init_rect(screen)
 
     def init_rect(self, screen: pygame.Surface) -> pygame.Rect:
-        width = 275
-        height = 400
+        width = 240
+        height = 340
         return pygame.Rect(
             screen.get_width() - width,
             screen.get_height() - height,
@@ -70,8 +70,8 @@ class ItrManager:
             text = f"APPREF  Boot Redex"
             text2 = None
 
-        x = self.rect.x + 20
-        y = self.rect.y + 20
+        x = self.rect.x + 5
+        y = self.rect.y + 5
         surf = title_font.render(text, True, header_color)
         self.screen.blit(surf, (x, y))
         if text2:
@@ -92,8 +92,8 @@ class ItrManager:
         text_color = ORANGE
         sel_text_color = YELLOW
 
-        x = self.rect.x + 20
-        y = self.rect.y + 20 + self.table['title_metrics']['line_height'] * 3
+        x = self.rect.x + 5
+        y = self.rect.y + 5 + self.table['title_metrics']['line_height'] * 3
         for i, memop in enumerate(memops):
             text = f"{memop}"
             color = sel_text_color if i == self.op_idx else text_color
@@ -123,12 +123,12 @@ class ItrManager:
             # must call execute *after* animate
             self.execute(memop)
         else:
-            self.anim_mgr.anims = []
+            self.anim_mgr.remove_waiting()
             self.itr_idx += 1
             self.op_idx = 0
             if self.done(): return False
             itr = self.itrs[self.itr_idx]
-            if isinstance(itr, ExpandRef):
+            if isinstance(itr, ExpandRef) and itr.nodes:
                 # hacky
                 if itr.def_idx < 7 or itr.def_idx >= DefIdx.MAT:
                     self.ref_mgr.add_ref(itr, "dim terminal")

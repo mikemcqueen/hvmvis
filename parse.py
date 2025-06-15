@@ -143,6 +143,12 @@ class RefBuilder:
         assert not node_term.term in self.term_map
         self.term_map[node_term.term] = node_term
 
+    # total hack
+    def hijack(self, ref: ExpandRef, add_ref: bool = True):
+       self.ref = ref; 
+       if add_ref:
+           self.refs.append(ref)
+
     def done(self):
         if self.ref:
             assert self.ref.nodes
@@ -285,7 +291,9 @@ def parse_log_file(file_content: str) -> (list[MemOp], list[Redex],
         # if a MATNUM is STORing a NUM, it is a new node it has created
         if fst.is_matnum_itr() and fst.op == 'STOR' and fst.put.has_num_tag():
             snd = ops_que.popleft()
-            ref_bldr.new(last_popped, DefIdx.MAT + last_popped.neg.loc)
+            #ref_bldr.new(last_popped, DefIdx.MAT + last_popped.neg.loc)
+            itr_bldr.itr.def_idx = DefIdx.MAT + fst.loc
+            ref_bldr.hijack(itr_bldr.itr)
             ref_bldr.add(fst, snd)
             ref_bldr.done()
             continue
