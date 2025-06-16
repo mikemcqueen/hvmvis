@@ -159,7 +159,7 @@ class RefBuilder:
     def new(self, redex: Redex, loc: Optional[int] = None):
         assert not self.ref
         if not loc: loc = redex.pos.loc
-        self.ref = AppRef(loc, redex)
+        self.ref = AppRef(loc, redex, len(self.itrs))
         self.refs.append(self.ref)
         self.itrs.append(self.ref)
         print(f"new {redex.neg.tag}{redex.pos.tag} def_idx: {loc}")
@@ -169,7 +169,7 @@ class RefBuilder:
         #assert is_node_store(fst) and is_node_store(snd)
         if not self.ref:
             assert fst.is_root_itr() and snd.is_root_itr() and fst.put.tag == 'REF'
-            self.ref = AppRef(fst.put.loc, None)
+            self.ref = AppRef(fst.put.loc, None, len(self.itrs))
             self.refs.append(self.ref)
             self.itrs.append(self.ref)
 
@@ -195,12 +195,12 @@ class ItrBuilder:
 
     def make_itr(self, itr_name: str, redex: Redex):
         match itr_name:
-            case AppLam.NAME: return AppLam(redex)
-            case MatRef.NAME: return MatRef(redex)
-            case MatNum.NAME: return MatNum(redex)
-            case OpxNum.NAME: return OpxNum(redex)
-            case OpyNum.NAME: return OpyNum(redex)
-            case DupNum.NAME: return DupNum(redex)
+            case AppLam.NAME: return AppLam(redex, len(self.itrs))
+            case MatRef.NAME: return MatRef(redex, len(self.itrs))
+            case MatNum.NAME: return MatNum(redex, len(self.itrs))
+            case OpxNum.NAME: return OpxNum(redex, len(self.itrs))
+            case OpyNum.NAME: return OpyNum(redex, len(self.itrs))
+            case DupNum.NAME: return DupNum(redex, len(self.itrs))
             case _: raise RuntimeError(f"{redex.itr_name}")
 
     def new(self, redex: Redex, itr_name: str):

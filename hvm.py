@@ -175,6 +175,7 @@ class HasNodes(ABC):
 
 @dataclass(eq=False, kw_only=True)
 class Interaction(ABC):
+    idx: int
     redex: Optional[Redex] = None
     memops: list[MemOp] = field(default_factory=list)
 
@@ -205,8 +206,8 @@ class ExpandRef(Interaction, HasNodes):
 @dataclass(eq=False)
 class AppRef(ExpandRef):
     NAME = 'APPREF'
-    def __init__(self, def_idx: int, redex: Optional[Redex]):
-        super().__init__(redex=redex, def_idx=def_idx)
+    def __init__(self, def_idx: int, redex: Optional[Redex], idx: int):
+        super().__init__(redex=redex, def_idx=def_idx, idx=idx)
 
     def name(self) -> str:
         return AppRef.NAME
@@ -214,8 +215,8 @@ class AppRef(ExpandRef):
 @dataclass(eq=False)
 class AppLam(Interaction):
     NAME = 'APPLAM'
-    def __init__(self, redex: Redex):
-        super().__init__(redex=redex)
+    def __init__(self, redex: Redex, idx: int):
+        super().__init__(redex=redex, idx=idx)
 
     def name(self) -> str:
         return AppLam.NAME
@@ -223,8 +224,8 @@ class AppLam(Interaction):
 @dataclass(eq=False)
 class DupNum(Interaction):
     NAME = 'DUPU32'
-    def __init__(self, redex: Redex):
-        super().__init__(redex=redex)
+    def __init__(self, redex: Redex, idx: int):
+        super().__init__(redex=redex, idx=idx)
 
     def name(self) -> str:
         return DupNum.NAME
@@ -232,8 +233,8 @@ class DupNum(Interaction):
 @dataclass(eq=False)
 class OpxNum(Interaction):
     NAME = 'OPXU32'
-    def __init__(self, redex: Redex):
-        super().__init__(redex=redex)
+    def __init__(self, redex: Redex, idx: int):
+        super().__init__(redex=redex, idx=idx)
 
     def name(self) -> str:
         return OpxNum.NAME
@@ -241,8 +242,8 @@ class OpxNum(Interaction):
 @dataclass(eq=False)
 class OpyNum(Interaction):
     NAME = 'OPYU32'
-    def __init__(self, redex: Redex):
-        super().__init__(redex=redex)
+    def __init__(self, redex: Redex, idx: int):
+        super().__init__(redex=redex, idx=idx)
 
     def name(self) -> str:
         return OpyNum.NAME
@@ -250,8 +251,8 @@ class OpyNum(Interaction):
 @dataclass(eq=False)
 class MatNum(ExpandRef):
     NAME = 'MATU32'
-    def __init__(self, redex: Redex):
-        super().__init__(redex=redex, def_idx=DefIdx.MAT)
+    def __init__(self, redex: Redex, idx: int):
+        super().__init__(redex=redex, def_idx=DefIdx.MAT, idx=idx)
 
     def name(self) -> str:
         return MatNum.NAME
@@ -259,8 +260,8 @@ class MatNum(ExpandRef):
 @dataclass(eq=False)
 class MatRef(Interaction):
     NAME = 'MATREF'
-    def __init__(self, redex: Redex):
-        super().__init__(redex=redex)
+    def __init__(self, redex: Redex, idx: int):
+        super().__init__(redex=redex, idx=idx)
 
     def name(self):
         return MatRef.NAME

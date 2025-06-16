@@ -31,20 +31,21 @@ class Phase(NamedTuple):
 
     @classmethod
     def make_list(cls, *names: str) -> list['Phase']:
-        result = []
+        phases = []
         total = 0.0
         for name in names:
             duration = durations[name]
             total += duration
-            result.append(cls(name, duration, total))
-        return result
+            phases.append(cls(name, duration, total))
+        return phases
 
     @classmethod
-    def append(cls, phases: list['Phase'], name: str) -> list['Phase']:
+    def append(cls, phases: list['Phase'], *names: str) -> list['Phase']:
         total = 0.0 if not phases else phases[-1].total
-        duration = durations[name]
-        total += duration
-        phases.append(cls(name, duration, total))
+        for name in names:
+            duration = durations[name]
+            total += duration
+            phases.append(cls(name, duration, total))
         return phases
 
 class Position(NamedTuple):
@@ -58,7 +59,7 @@ def slide_right_distance(table: dict) -> int:
     return (
         table['term_width'] +
         table['col_spacing']['margin'] +
-        table['table_border_thickness'] +
+        #table['table_border_thickness'] +
         table['metrics']['char_width']
     )
 
@@ -66,7 +67,7 @@ def term_x_pos(rect: RefRect, table: dict) -> int:
     # table['term_offset_x']
     return (
         rect.x +
-        table['table_border_thickness'] +
+        #table['table_border_thickness'] +
         table['col_spacing']['margin'] +
         table['column_widths'][0]  +        # Add MEM column width
         table['col_spacing']['mem_term']    # Add MEM to Term spacing
@@ -99,10 +100,31 @@ class AnimState:
     alpha: float = 255
     color: Optional[Color] = None
     subs: list['AnimState'] = field(default_factory=list)
+    in_flight: bool = False
+
+    def phase_name(self):
+        return self.phases[self.phase].name
+
+    def waiting(self):
+        return self.phase_name() == 'wait'
 
     def reset_phases(self):
+        self.start_time = time.monotonic()
         self.phases = []
         self.phase = 0
+
+    def has_last_wait_phase(self) -> bool:
+        return self.phases and self.phases[-1].name == 'wait'
+
+    def on_last_phase(self) -> bool:
+        return self.phase == len(self.phases) - 1
+
+    def remove_last_wait_phase(self):
+        if self.has_last_wait_phase():
+            if self.on_last_phase():
+                self.reset_phases()
+            else:
+                self.phases = self.phases[:-1]
 
     def fractional_x(self, fraction: float) -> float:
         return self.beg_pos.x + (self.end_pos.x - self.beg_pos.x) * fraction
@@ -122,13 +144,15 @@ class AnimState:
         return Position(self.beg_pos.x + dist, self.beg_pos.y)
 
     def subscribe(self, anim: 'AnimState'):
-        phases = Phase.make_list('wait')
-        phases.extend(self.phases)
-        self.phases = phases
+        assert self != anim
+        if not self.in_flight:
+            phases = Phase.make_list('wait')
+            phases.extend(self.phases)
+            self.phases = phases
         anim.add_subscriber(self)
 
     def add_subscriber(self, anim: 'AnimState') -> bool:
-        print(f"term {anim.term} waiting on {self.term}")
+        print(f"term {anim.term}:{anim.itr.idx} waiting on {self.term}:{self.itr.idx}")
         self.subs.append(anim)
         return True
 
@@ -137,21 +161,26 @@ class AnimState:
         anim = self.subs[0]
         other = self.subs[1:]
         self.subs = []
-        assert (anim.phase + 1 < len(anim.phases) and
-                anim.phases[anim.phase].name == 'wait')
+        if anim.phase + 1 >= len(anim.phases) or not anim.waiting():
+            print(f"ERROR term {anim.term}:{anim.itr.idx} was waiting on {self.term}:{self.itr.idx}")
+            print(f"      now on phase {anim.phase} of {len(anim.phases)}")
+            phase = anim.phases[anim.phase] if anim.phase < len(anim.phases) else 'complete'
+            print(f"      phase0: {anim.phases[0]} phase: {phase}")
+            assert anim.phase + 1 < len(anim.phases) and anim.waiting()
         total = anim.phases[anim.phase].total
         anim.phase += 1
         anim.start_time = time.monotonic() + total
-        print(f"term {self.term} notifying {anim.term}")
+        print(f"term {self.term}:{self.itr.idx} notifying {anim.term}:{anim.itr.idx}")
         if other:
-            print(f"  adding {len(other)} subs to {anim.term}")
+            print(f"  adding {len(other)} subs to {anim.term}:{anim.itr.idx}")
             anim.subs.extend(other)
         return anim
 
 def ease_in_out_cubic(t: float) -> float:
     if t < 0.5:
         return 4 * t * t * t
-    return 1 - pow(-2 * t + 2, 3) / 2
+    else:
+        return 1 - pow(-2 * t + 2, 3) / 2
 
 def interpolate_color(color1: Color, color2: Color, t: float) -> Color:
     return (
@@ -166,8 +195,8 @@ class AnimManager:
         self.ref_mgr = ref_mgr
         self.table = table
         self.anims: List[AnimState] = []
-        self.log_update = False
-        # to help serialize operations on a loc
+        self.log_update: bool = False
+        self.ready: bool = True
         self.loc_map: dict[int, AnimState] = {}
 
     def add(self, anim: AnimState):
@@ -181,19 +210,29 @@ class AnimManager:
         # quick, hack manifested anim i think
         if not anim.phases: return False
 
-        #print(f"anim for {anim.node_term.term} phase {anim.phase} of {len(anim.phases)}")
+        #print(f"anim for {anim.term} phase {anim.phase} of {len(anim.phases)}")
+        test = Term('APP', 0 , 4)
+
         phase = anim.phases[anim.phase]
         if phase.name == 'wait':
-            if log: print(f"anim for {anim.term} is waiting, phase {anim.phase} of {len(anim.phases)}")
+            #if anim.term == test and anim.itr.idx == 6:
+            #print(f"term {anim.term}:{anim.itr.idx} is waiting, phase {anim.phases[anim.phase]}: {anim.phase} of {len(anim.phases)}")
             return False
+        
+        anim.in_flight = True
+
+        #if anim.term == test and anim.itr.idx == 6:
+        #print(f"term {anim.term}:{anim.itr.idx} is updating, phase {anim.phases[anim.phase]}: {anim.phase} of {len(anim.phases)}")
 
         elapsed = current_time - anim.start_time
 
-        phase_start = phase.total - phase.duration
+        speed = (5 - (self.table['speed'] - 1)) * 0.2
+
+        phase_start = (phase.total - phase.duration) * speed
         phase_elapsed = elapsed - phase_start
 
         # Check if we need to advance to next phase
-        if phase_elapsed >= phase.duration:
+        if phase_elapsed >= phase.duration * speed:
             # could happen.
             assert anim.end_pos
             anim.beg_pos = anim.end_pos
@@ -203,23 +242,23 @@ class AnimManager:
             if anim.phase + 1 < len(anim.phases):
                 anim.phase += 1
                 phase = anim.phases[anim.phase]
-                if log: print(f"next phase {phase.name} for {anim.node_term.term}")
+                if log: print(f"next phase {phase.name} for {anim.term}")
                 if phase.name == 'wait':
                     return False
-                phase_start = phase.total - phase.duration
+                phase_start = (phase.total - phase.duration) * speed
                 phase_elapsed = elapsed - phase_start
             else:
                 anim.phase = len(anim.phases)
-                if log: print(f"final phase {phase.name} for {anim.node_term.term}")
+                if log: print(f"final phase {phase.name} for {anim.term}")
                 # Animation done
                 return True
 
-        t = phase_elapsed / phase.duration
+        t = phase_elapsed / (phase.duration * speed)
 
         # Apply phase-specific transformations
         phase_name = phase.name
 
-        if log: print(f"phase {phase_name} for {anim.node_term.term}")
+        if log: print(f"phase {phase_name} for {anim.term}")
 
         if phase_name == 'fade_in':
             if not anim.end_pos:
@@ -252,6 +291,8 @@ class AnimManager:
 
         elif phase_name == 'slide_over':
             if not anim.end_pos:
+                if not anim.to_rect:
+                    print(f"anim: {anim}")
                 anim.end_pos = anim.slide_over_end_pos(anim.to_rect, self.table)
             t_eased = ease_in_out_cubic(t)
             #horz_slide_pos
@@ -274,13 +315,15 @@ class AnimManager:
             anim.color = interpolate_color(BRIGHT_GREEN, DIM_GREEN, t)
             if anim.to_rect:
                 node_term = anim.to_rect.get_node_term(anim.to_loc)
-                node_term.node.set_term_at(anim.to_loc, anim.node_term.term)
+                node_term.node.set_term_at(anim.to_loc, anim.term)
                 anim.to_rect = None
+                """
                 next_anim = anim.notify()
                 if next_anim:
                     self.loc_map[anim.to_loc] = next_anim
                 else:
                     del self.loc_map[anim.to_loc] #.pop(anim.to_loc, None)
+                """
 
         elif phase_name == 'wait':
             if not anim.end_pos:
@@ -306,7 +349,7 @@ class AnimManager:
                 )
 
         # Draw each field of the term (TAG, LAB, LOC)
-        term = anim.node_term.term
+        term = anim.term
         term_data = (term.tag[:3], f"{term.lab:03d}", f"{term.loc:04d}")
         for i, (value, col_x) in enumerate(zip(term_data, col_positions)):
             text_surface = font.render(value, True, anim.color)
@@ -335,26 +378,29 @@ class AnimManager:
             beg_pos=Position(x, y),
             color=DIM_GREEN
         )
+        """
         if loc in self.loc_map:
             active = self.loc_map[loc]
             anim.subscribe(active)
-
+        """
         self.add(anim)
         return anim
 
     def take(self, memop: MemOp):
         rect = self.ref_mgr.get_rect(memop.node.ref)
-        term = memop.node.get_term_at(memop.loc).term
-        self.slide_out(term, rect, memop.loc, memop.itr)
+        got_term = memop.got #node.get_term_at(memop.loc).term
+        self.slide_out(got_term, rect, memop.loc, memop.itr)
 
     # NOTE this is unpredictable if two terms exist with same fields
     def find_anim(self, term: Term, itr: Interaction) -> AnimState:
+        found = None
         for anim in self.anims:
-            if itr == term.itr and term == anim.term:
-                #print(f"found anim for term {term}")
-                return anim
-        #print(f"no anim for term {term}")
-        return None
+            if itr.idx == anim.itr.idx and term == anim.term:
+                if found:
+                    print(f"found 2 x {term}:{itr.idx} @ {itr.name()}")
+                    assert not found
+                found = anim
+        return found
 
     # a term either was emergent in code, or was taken from a non-visible ref,
     # so we must make it "appear out of nowhere"
@@ -373,16 +419,14 @@ class AnimManager:
         return anim
 
     def move(self, anim: AnimState, rect: RefRect, loc: int) -> AnimState:
-        anim.start_time = time.monotonic()
         if not rect:
-            Phase.append(anim.phases, 'slide_to_top')
-            Phase.append(anim.phases, 'fade_out')
+            Phase.append(anim.phases, 'slide_to_top', 'fade_out')
             return
 
         final_x = term_x_pos(rect, self.table)
         final_y = term_y_pos(rect, loc, self.table)
 
-        #print(f"moving anim for {anim.node_term.term}")
+        #print(f"moving anim for {anim.term}")
         self.log_update = True
 
         slide_x = final_x + slide_right_distance(self.table)
@@ -393,20 +437,21 @@ class AnimManager:
             Phase.append(anim.phases, 'slide_over')
         if anim.beg_pos.y != final_y:
             Phase.append(anim.phases, 'slide_to_loc')
-        Phase.append(anim.phases, 'slide_in')
-        Phase.append(anim.phases, 'fade_out')
+        Phase.append(anim.phases, 'slide_in', 'fade_out')
         anim.to_rect = rect
         anim.to_loc = loc
+        """
         if loc in self.loc_map:
             active = self.loc_map[loc]
             anim.subscribe(active)
         else:
             self.loc_map[loc] = anim
+        """
 
     def swap(self, memop: MemOp):
         rect = self.ref_mgr.get_rect(memop.node.ref)
-        term = memop.node.get_term_at(memop.loc).term
-        got_anim = self.slide_out(term, rect, memop.loc, memop.itr)
+        got_term = memop.got # node.get_term_at(memop.loc).term
+        got_anim = self.slide_out(got_term, rect, memop.loc, memop.itr)
         put_anim = self.find_anim(memop.put, memop.itr)
         if not put_anim:
             # don't bother manifesting 'emergent' terms that slide to nowhere
@@ -414,7 +459,7 @@ class AnimManager:
             put_anim = self.manifest(memop.put, memop.itr)
             #print(f"manifested anim for {memop.put}")
         else:
-            put_anim.reset_phases()
+            put_anim.remove_last_wait_phase()
         self.move(put_anim, rect, memop.loc) #, memop.itr)
 
     def animate(self, memop: MemOp):
@@ -424,15 +469,19 @@ class AnimManager:
             self.swap(memop)
 
     def remove_waiting(self):
-        anims = []
-        for anim in self.anims:
-            if anim.phase == len(anim.phases) - 1 and anim.phases[-1].name == 'wait':
-                continue
-            anims.append(anim)
-        self.anims = anims
+        self.anims = [anim for anim in self.anims
+                      if not anim.on_last_phase() or not anim.waiting()]
 
     def update_all(self, now: float):
-        self.anims = [anim for anim in self.anims if not self.update_state(anim, now)]
+        all_waiting = True
+        anims: [AnimState] = []
+        for anim in self.anims:
+            if not self.update_state(anim, now):
+                anims.append(anim)
+                if not anim.waiting():
+                    all_waiting = False
+        self.anims = anims
+        self.ready = all_waiting
         self.log_update = False
 
     def draw_all(self):

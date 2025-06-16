@@ -67,18 +67,24 @@ def get_table_metrics() -> dict:
     }
 
 def draw_instructions(screen: pygame.Surface, table: dict):
+    if not 'speed' in table: table['speed'] = 1
     instructions = [
-        "SPACE: Execute next operation",
-        "Click: Toggle node selection",
-        "D:     Toggle show dependencies"
+        "SPACE: Execute next",
+        "Click: Toggle select",
+        "D:     Toggle dependencies",
+        f"+/-:   Speed({table['speed']})"
     ]
-    y = 10
+    y = 0
     for i, instruction in enumerate(instructions):
         text = fonts.content.render(instruction, True, WHITE)
         screen.blit(text, (10, 10 + y))
         y += table['metrics']['line_height'] + table['row_spacing']['intra_row']
 
-def event_handler(event, ref_mgr: RefManager, itr_mgr: ItrManager, anim_mgr: AnimManager):
+def add_speed(amt: int, table: dict):
+    speed = table['speed'] + amt
+    table['speed'] = max(1, min(5, speed))
+
+def event_handler(event, ref_mgr: RefManager, itr_mgr: ItrManager, anim_mgr: AnimManager, table: dict):
     if event.type == pygame.QUIT:
         return False
     elif event.type == pygame.KEYDOWN:
@@ -86,6 +92,10 @@ def event_handler(event, ref_mgr: RefManager, itr_mgr: ItrManager, anim_mgr: Ani
             itr_mgr.next()
         elif event.key == pygame.K_d:
             ref_mgr.toggle_show_dependencies()
+        elif event.key == pygame.K_MINUS:
+            add_speed(-1, table)
+        elif event.key == pygame.K_EQUALS and event.mod & pygame.KMOD_SHIFT:
+            add_speed(1, table)
         elif event.key == pygame.K_q:
             return False
     elif event.type == pygame.MOUSEBUTTONDOWN:
@@ -117,7 +127,7 @@ def event_loop(itrs: list[Interaction]):
         current_time = time.monotonic()
 
         for event in pygame.event.get():
-            if not event_handler(event, ref_mgr, itr_mgr, anim_mgr):
+            if not event_handler(event, ref_mgr, itr_mgr, anim_mgr, table):
                 running = False
 
         screen.fill(BLACK)

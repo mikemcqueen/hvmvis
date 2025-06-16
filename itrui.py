@@ -79,7 +79,6 @@ class ItrManager:
             surf = title_font.render(text2, True, header_color)
             self.screen.blit(surf, (x, y))
 
-
         # Draw horizontal line under headers
         #line_y = header_y + table['metrics']['line_height'] + table['row_spacing']['header_to_line']
         #line_left = self.x + table['col_spacing']['margin']
@@ -96,7 +95,11 @@ class ItrManager:
         y = self.rect.y + 5 + self.table['title_metrics']['line_height'] * 3
         for i, memop in enumerate(memops):
             text = f"{memop}"
-            color = sel_text_color if i == self.op_idx else text_color
+            if i == self.op_idx:
+                color = YELLOW if self.anim_mgr.ready else DIM_YELLOW
+            else:
+                color = ORANGE
+            #color = sel_text_color if i == self.op_idx else text_color
             text_surface = font.render(text, True, color)
             surface.blit(text_surface, (x, y))
             y += self.table['metrics']['line_height'] + self.table['row_spacing']['intra_row']
@@ -114,7 +117,7 @@ class ItrManager:
         self.draw_memops(self.screen, itr.memops)
 
     def next(self):
-        if self.done(): return False
+        if self.done() or not self.anim_mgr.ready: return False
         itr = self.itrs[self.itr_idx]
         memop = itr.memops[self.op_idx] if self.op_idx < len(itr.memops) else None
         self.op_idx += 1
