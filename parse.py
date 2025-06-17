@@ -75,17 +75,18 @@ def ref_from_loc(refs: list[ExpandRef], loc: int):
     for ref in refs:
         if ref.contains(loc):
             return ref
-    print(f"No ref for loc {loc}")
+    print(f"No ref for loc {loc} len(refs) {len(refs)}")
+    
     return None
 
 def node_from_loc(refs: list[ExpandRef], loc: int):
     ref = ref_from_loc(refs, loc)
     if not ref: return None
     for node in ref.nodes:
-        node_loc = node.neg.stores[0].loc
+        node_loc = node.neg.mem_loc
         if loc in (node_loc, node_loc + 1):
             return node
-    print(f"No node for loc {loc}")
+    print(f"No node for loc {loc} len(ref.nodes) {len(ref.nodes)}")
     return None
 
 @dataclass(eq=False)
@@ -96,7 +97,9 @@ class RedexBuilder:
     redex_map: dict[tuple[Term, Term], Redex] = field(default_factory=dict)
 
     def get_node_term(self, term: Term):
-        if term not in self.term_map:
+        if term in self.term_map:
+            return self.term_map[term]
+        else:
             if term.has_loc():
                 # Term with loc *should* be in term_map, but isn't yet - add it
                 node = NodeProxy(ref_from_loc(self.refs, term.loc))
@@ -107,11 +110,10 @@ class RedexBuilder:
                 # it in a NodeTerm for convenience
                 node_term = NodeTerm(term)
             return node_term
-        else:
-            return self.term_map[term]
 
-    def push(self, neg_op: MemOp, pos_op: MemOp, ref: ExpandRef):
-        redex = Redex(self.get_node_term(neg_op.put), self.get_node_term(pos_op.put)) #, ref)
+    def push(self, neg_op: MemOp, pos_op: MemOp, itr: Interaction):
+        #redex = Redex(self.get_node_term(neg_op.put), self.get_node_term(pos_op.put)) #, ref)
+        redex = Redex(neg_op.put, pos_op.put, itr)
         self.redexes.append(redex)
         #print(f"push {redex.neg} {redex.pos}")
         if neg_op.put.has_loc() or pos_op.put.has_loc():
@@ -124,6 +126,7 @@ class RedexBuilder:
             self.redex_map[key] = redex
 
     def pop(self, neg_op: MemOp, pos_op: MemOp) -> Redex:
+        # this is basically a way of ignoring ERA~REFs
         if neg_op.got.has_loc() or pos_op.got.has_loc():
             popped = self.redex_map[(neg_op.got, pos_op.got)]
             print(f"popped {popped}")
@@ -174,8 +177,8 @@ class RefBuilder:
             self.itrs.append(self.ref)
 
         print(f"adding node: {fst.put} {snd.put} @ {fst.loc}")
-        neg = NodeTerm(fst.put, stores=[fst])
-        pos = NodeTerm(snd.put, stores=[snd])
+        neg = NodeTerm(fst.put, memops=[fst])
+        pos = NodeTerm(snd.put, memops=[snd])
         node = Node(neg, pos, self.ref)
         neg.node = node
         pos.node = node
@@ -219,13 +222,17 @@ class ItrBuilder:
             # in matnum; now is a good time to add it to the term_map
             if not memop.put in self.term_map:
                 node = NodeProxy(ref_from_loc(self.refs, memop.put.loc))
-                node_term = NodeTerm(memop.put, node=node, stores=[memop])
+                node_term = NodeTerm(memop.put, node=node, memops=[memop])
                 self.term_map[memop.put] = node_term
-            else:
-                node_term = self.term_map[memop.put]
-                node_term.stores.append(memop)
-        memop.node = node_from_loc(self.refs, memop.loc)
+            #else:
+            #    node_term = self.term_map[memop.put]
+            #    node_term.stores.append(memop)
+
+        node = node_from_loc(self.refs, memop.loc)
+        memop.node = node
         memop.itr = self.itr
+        node_term = node.get(memop.loc)
+        node_term.memops.append(memop)
         self.itr.memops.append(memop)
 
     def done(self):
@@ -265,7 +272,9 @@ def parse_log_file(file_content: str) -> (list[MemOp], list[Redex],
 
         if is_redex_push(fst):
             snd = ops_que.popleft()
-            redex_bldr.push(fst, snd, ref_bldr.ref)
+            itr = ref_bldr.ref if ref_bldr.ref else itr_bldr.itr
+            assert itr
+            redex_bldr.push(fst, snd, itr)
             continue
 
         # can i move this above is_redex_push()?

@@ -64,8 +64,8 @@ class ItrManager:
         header_color = ORANGE
 
         if itr.redex:
-            text = f"{itr.name()}  {itr.redex.neg.term}"
-            text2 = f"        {itr.redex.pos.term}"
+            text = f"{itr.name()}  {itr.redex.neg}"
+            text2 = f"        {itr.redex.pos}"
         else:
             text = f"APPREF  Boot Redex"
             text2 = None
@@ -87,10 +87,6 @@ class ItrManager:
 
     def draw_memops(self, surface: pygame.Surface, memops: list[MemOp]):
         font = fonts.content
-
-        text_color = ORANGE
-        sel_text_color = YELLOW
-
         x = self.rect.x + 5
         y = self.rect.y + 5 + self.table['title_metrics']['line_height'] * 3
         for i, memop in enumerate(memops):

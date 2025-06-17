@@ -19,9 +19,6 @@ class Term(NamedTuple):
     def taken(self):
         return self.tag == TAKEN_TAG
 
-    def empty(self) -> bool:
-        return self.tag == EMPTY_TAG
-
     def has_loc(self) -> bool:
         return self.tag in HAS_LOC_TAGS
 
@@ -30,9 +27,6 @@ class Term(NamedTuple):
 
 EMPTY_TERM = Term(EMPTY_TAG, 0, 0)
 TAKEN_TERM = Term(TAKEN_TAG, 0, 0)
-
-class MemOpProxy(NamedTuple):
-    loc: int
 
 @dataclass(eq=False)
 class MemOp:
@@ -44,28 +38,26 @@ class MemOp:
     put: Optional[Term]
     got: Optional[Term]
     loc: int
-    # a MemOp occurs within the memory of a Node: MemOp.loc is either the loc
-    # Node.neg or the loc of Node.pos
+    # a MemOp operates on a memory location within a Node
     node: Optional['Node'] = None
-    # a MemOp originates from an interaction. Often, but not always, the same
-    # as node.ref.
+    # a MemOp originates from an interaction.
     itr: Optional['Interaction'] = None
 
     def __repr__(self) -> str:
         if self.op == 'EXCH':
             return f"{self.tid},{self.itr_name},{self.op},{self.lvl},{self.got.tag},{self.got.loc},{self.put.tag},{self.put.loc},{self.loc}"
-        if self.op in ('POP', 'LOAD'):
+        elif self.op in ('POP', 'LOAD'):
             return f"{self.tid},{self.itr_name},{self.op},{self.lvl},{self.got.tag},{self.got.loc},{self.loc}"
-        # self.op == 'STOR'
-        return f"{self.tid},{self.itr_name},{self.op},{self.lvl},{self.put.tag},{self.put.loc},{self.loc}"
+        else: # self.op == 'STOR'
+            return f"{self.tid},{self.itr_name},{self.op},{self.lvl},{self.put.tag},{self.put.loc},{self.loc}"
 
     def __str__(self) -> str:
         if self.op == 'EXCH':
             return f"{self.op},{self.lvl},{self.got.tag},{self.got.loc},{self.put.tag},{self.put.loc},{self.loc}"
-        if self.op in ('POP', 'LOAD'):
+        elif self.op in ('POP', 'LOAD'):
             return f"{self.op},{self.lvl},{self.got.tag},{self.got.loc},{self.loc}"
-        # self.op == 'STOR'
-        return f"{self.op},{self.lvl},{self.put.tag},{self.put.loc},{self.loc}"
+        else: # self.op == 'STOR'
+            return f"{self.op},{self.lvl},{self.put.tag},{self.put.loc},{self.loc}"
 
     def is_take(self) -> bool:
         return self.op == 'EXCH' and self.put.taken()
@@ -97,8 +89,11 @@ class NodeTerm:
     term: Term
     node: Optional['Node | NodeProxy'] = None
     #kind: Optional[Kind] = None
+    memops: list[MemOp] = field(default_factory=list)
+    memop_idx: int = 0
+    # hack (i think) for determining ref dependencies. feels wrong. re-visit.
     loads: list[MemOp] = field(default_factory=list)
-    stores: list[MemOp | MemOpProxy] = field(default_factory=list)
+    empty: bool = False
 
     @property
     def tag(self): return self.term.tag
@@ -107,20 +102,34 @@ class NodeTerm:
     @property
     def loc(self): return self.term.loc
     @property
-    def mem_loc(self): return self.stores[0].loc
+    def mem_loc(self): return self.memops[0].loc
 
     def __repr__(self) -> str:
         return f"{self.term} {type(self.node).__name__}({self.node.ref.def_idx if self.node and self.node.ref else 'None'})"
 
-    def empty(self) -> bool:
-        return self.term.empty()
+    def set(self, term: Term):
+        # EMPTY_TERM is a hack for viewing/animation
+        if term != EMPTY_TERM:
+            assert self.memop_idx < len(self.memops)
+            self.memop_idx += 1
+            memop = self.memops[self.memop_idx]
+            assert term == memop.put
+            self.term = term
+            self.empty = False
+        else:
+            self.empty = True
+
+    def memops_done(self):
+        return self.memop_idx == len(self.memops) - 1
 
 @dataclass(eq=False)
 class Redex:
-    # These are stored as NodeTerms for convenience, to assist looking up the
-    # origin node of a push/pop operation.
-    neg: NodeTerm
-    pos: NodeTerm
+    neg: Term
+    pos: Term
+    push_itr: 'Interaction'
+
+    def __repr__(self) -> str:
+        return f"{self.neg} {self.pos} push_itr.idx({self.push_itr.idx})"
 
 @dataclass(eq=False)
 class NodeProxy:
@@ -135,27 +144,22 @@ class Node:
     #parent: Optional[Node]
     #child: Optional[Node]
 
-    def validate(self, loc: int):
-        neg_loc = self.neg.stores[0].loc
+    def _validate(self, loc: int):
+        neg_loc = self.neg.mem_loc
         assert loc in (neg_loc, neg_loc + 1), f"loc {loc} neg_loc {neg_loc}"
 
-    def set_term_at(self, loc: int, term: Term):
-        self.validate(loc)
-        memop = MemOpProxy(loc)
-        if loc == self.neg.mem_loc:
-            self.neg = NodeTerm(term, self, stores=[memop])
-        else:
-            self.pos = NodeTerm(term, self, stores=[memop])
-
-    def get_term_at(self, loc: int) -> NodeTerm:
-        self.validate(loc)
+    def get(self, loc: int) -> NodeTerm:
+        self._validate(loc)
         return self.neg if loc == self.neg.mem_loc else self.pos
 
+    def set(self, loc: int, term: Term):
+        self.get(loc).set(term)
+
     def take(self, loc: int):
-        self.set_term_at(loc, TAKEN_TERM)
+        self.set(loc, TAKEN_TERM)
 
     def swap(self, loc: int):
-        self.set_term_at(loc, EMPTY_TERM)
+        self.set(loc, EMPTY_TERM)
 
 
 class DefIdx(IntEnum):
@@ -189,7 +193,7 @@ class ExpandRef(Interaction, HasNodes):
     nodes: list[Node] = field(default_factory=list)
 
     @property
-    def id(self): return (self.def_idx, self.first_loc)
+    def id(self): return (self.def_idx, self.first_loc())
 
     def __repr__(self) -> str:
         return f"def_idx: {self.def_idx} {self.redex}"
@@ -198,10 +202,17 @@ class ExpandRef(Interaction, HasNodes):
         pass
 
     def first_loc(self) -> int:
-        return self.nodes[0].neg.stores[0].loc
+        return self.nodes[0].neg.mem_loc
 
     def last_loc(self) -> int:
-        return self.nodes[-1].pos.stores[0].loc
+        return self.nodes[-1].pos.mem_loc
+
+    def memops_done(self) -> bool:
+        for node in self.nodes:
+            for node_term in (node.neg, node.pos):
+                if not node_term.memops_done():
+                    return False
+        return True
 
 @dataclass(eq=False)
 class AppRef(ExpandRef):

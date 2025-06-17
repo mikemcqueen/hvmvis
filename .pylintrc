@@ -1,0 +1,32 @@
+#disable=raw-checker-failed,
+#        bad-inline-option,
+#        locally-disabled,
+#        file-ignored,
+#        suppressed-message,
+#        useless-suppression,
+#        deprecated-pragma,
+#        use-symbolic-message-instead,
+#        use-implicit-booleaness-not-comparison-to-string,
+#        use-implicit-booleaness-not-comparison-to-zero,
+#        unused-import,
+#        consider-using-sys-exit,
+
+[MESSAGES CONTROL]
+disable=missing-docstring,
+        empty-docstring,
+        too-many-instance-attributes,
+        multiple-statements,
+        bare-except,
+        too-few-public-methods,
+        invalid-name,
+        f-string-without-interpolation,
+        unused-wildcard-import,
+        no-else-return,
+        broad-exception-raised,
+        broad-exception-caught,
+        pointless-string-statement
+        
+
+[FORMAT]
+max-line-length=128
+max-args=6

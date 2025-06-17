@@ -195,7 +195,6 @@ class AnimManager:
         self.ref_mgr = ref_mgr
         self.table = table
         self.anims: List[AnimState] = []
-        self.log_update: bool = False
         self.ready: bool = True
         self.loc_map: dict[int, AnimState] = {}
 
@@ -205,28 +204,15 @@ class AnimManager:
         self.anims.append(anim)
 
     def update_state(self, anim: AnimState, current_time: float) -> bool:
-        log = False #self.log_update
-
-        # quick, hack manifested anim i think
-        if not anim.phases: return False
-
-        #print(f"anim for {anim.term} phase {anim.phase} of {len(anim.phases)}")
-        test = Term('APP', 0 , 4)
-
         phase = anim.phases[anim.phase]
         if phase.name == 'wait':
-            #if anim.term == test and anim.itr.idx == 6:
-            #print(f"term {anim.term}:{anim.itr.idx} is waiting, phase {anim.phases[anim.phase]}: {anim.phase} of {len(anim.phases)}")
             return False
-        
-        anim.in_flight = True
 
-        #if anim.term == test and anim.itr.idx == 6:
-        #print(f"term {anim.term}:{anim.itr.idx} is updating, phase {anim.phases[anim.phase]}: {anim.phase} of {len(anim.phases)}")
+        anim.in_flight = True
 
         elapsed = current_time - anim.start_time
 
-        speed = (5 - (self.table['speed'] - 1)) * 0.2
+        speed = max(0.1, (5 - (self.table['speed'] - 1)) * 0.2)
 
         phase_start = (phase.total - phase.duration) * speed
         phase_elapsed = elapsed - phase_start
@@ -242,24 +228,19 @@ class AnimManager:
             if anim.phase + 1 < len(anim.phases):
                 anim.phase += 1
                 phase = anim.phases[anim.phase]
-                if log: print(f"next phase {phase.name} for {anim.term}")
                 if phase.name == 'wait':
                     return False
                 phase_start = (phase.total - phase.duration) * speed
                 phase_elapsed = elapsed - phase_start
             else:
                 anim.phase = len(anim.phases)
-                if log: print(f"final phase {phase.name} for {anim.term}")
                 # Animation done
                 return True
 
-        t = phase_elapsed / (phase.duration * speed)
+        t = float(phase_elapsed) / (phase.duration * speed)
 
         # Apply phase-specific transformations
         phase_name = phase.name
-
-        if log: print(f"phase {phase_name} for {anim.term}")
-
         if phase_name == 'fade_in':
             if not anim.end_pos:
                 anim.end_pos = anim.beg_pos
@@ -315,7 +296,7 @@ class AnimManager:
             anim.color = interpolate_color(BRIGHT_GREEN, DIM_GREEN, t)
             if anim.to_rect:
                 node_term = anim.to_rect.get_node_term(anim.to_loc)
-                node_term.node.set_term_at(anim.to_loc, anim.term)
+                node_term.node.set(anim.to_loc, anim.term)
                 anim.to_rect = None
                 """
                 next_anim = anim.notify()
@@ -353,25 +334,27 @@ class AnimManager:
         term_data = (term.tag[:3], f"{term.lab:03d}", f"{term.loc:04d}")
         for i, (value, col_x) in enumerate(zip(term_data, col_positions)):
             text_surface = font.render(value, True, anim.color)
-
-            # Apply animation offset
             draw_x = anim.cur_pos.x + col_x
             draw_y = anim.cur_pos.y
-
             surface.blit(text_surface, (draw_x, draw_y))
 
-    def slide_out(self, term: Term, rect: RefRect, loc: int, itr: Interaction) -> AnimState:
+    def slide_out(self, term: Term, rect: RefRect, memop: MemOp) -> AnimState:
+        if memop.node.get(memop.loc).term != memop.got:
+            node_term = memop.node.get(memop.loc)
+            print(f"memop {memop} node_term {node_term} memops {node_term.memops}")
+
+        assert memop.node.get(memop.loc).term == memop.got
         if not rect: return None
 
         x = term_x_pos(rect, self.table)
-        y = term_y_pos(rect, loc, self.table)
+        y = term_y_pos(rect, memop.loc, self.table)
         if y is None: return None
 
         last_phase = 'fade_out' if term.tag == 'SUB' else 'wait'
         phases = ['fade_in', 'slide_out', last_phase]
         anim = AnimState(
             term=term,
-            itr=itr,
+            itr=memop.itr,
             start_time=time.monotonic(),
             phases=Phase.make_list(*phases),
             from_rect=rect,
@@ -388,8 +371,7 @@ class AnimManager:
 
     def take(self, memop: MemOp):
         rect = self.ref_mgr.get_rect(memop.node.ref)
-        got_term = memop.got #node.get_term_at(memop.loc).term
-        self.slide_out(got_term, rect, memop.loc, memop.itr)
+        self.slide_out(memop.got, rect, memop)
 
     # NOTE this is unpredictable if two terms exist with same fields
     def find_anim(self, term: Term, itr: Interaction) -> AnimState:
@@ -426,9 +408,6 @@ class AnimManager:
         final_x = term_x_pos(rect, self.table)
         final_y = term_y_pos(rect, loc, self.table)
 
-        #print(f"moving anim for {anim.term}")
-        self.log_update = True
-
         slide_x = final_x + slide_right_distance(self.table)
         # there might be some epsilon here to consider
         if anim.beg_pos.x != slide_x:
@@ -450,23 +429,28 @@ class AnimManager:
 
     def swap(self, memop: MemOp):
         rect = self.ref_mgr.get_rect(memop.node.ref)
-        got_term = memop.got # node.get_term_at(memop.loc).term
-        got_anim = self.slide_out(got_term, rect, memop.loc, memop.itr)
+        got_anim = self.slide_out(memop.got, rect, memop)
         put_anim = self.find_anim(memop.put, memop.itr)
+        # call node_term.set() below *after* slide_out above as set() updates state
+        if not rect:
+            node_term = memop.node.get(memop.loc)
+            node_term.set(memop.put)
         if not put_anim:
             # don't bother manifesting 'emergent' terms that slide to nowhere
-            if not got_anim: return
+            if not got_anim:
+                return
             put_anim = self.manifest(memop.put, memop.itr)
-            #print(f"manifested anim for {memop.put}")
         else:
             put_anim.remove_last_wait_phase()
-        self.move(put_anim, rect, memop.loc) #, memop.itr)
+        self.move(put_anim, rect, memop.loc)
 
     def animate(self, memop: MemOp):
         if memop.is_take():
             self.take(memop)
         elif memop.is_swap():
             self.swap(memop)
+        else:
+            assert False, f"unknown memop {memop}"
 
     def remove_waiting(self):
         self.anims = [anim for anim in self.anims
@@ -482,9 +466,7 @@ class AnimManager:
                     all_waiting = False
         self.anims = anims
         self.ready = all_waiting
-        self.log_update = False
 
     def draw_all(self):
         for anim in self.anims:
-            #if anim.phase != 'complete':
             self.draw_animated_term(self.screen, anim, fonts.content)

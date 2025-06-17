@@ -71,7 +71,7 @@ def draw_instructions(screen: pygame.Surface, table: dict):
     instructions = [
         "SPACE: Execute next",
         "Click: Toggle select",
-        "D:     Toggle dependencies",
+        #"D:     Toggle dependencies",
         f"+/-:   Speed({table['speed']})"
     ]
     y = 0
@@ -82,7 +82,7 @@ def draw_instructions(screen: pygame.Surface, table: dict):
 
 def add_speed(amt: int, table: dict):
     speed = table['speed'] + amt
-    table['speed'] = max(1, min(5, speed))
+    table['speed'] = max(1, min(6, speed))
 
 def event_handler(event, ref_mgr: RefManager, itr_mgr: ItrManager, anim_mgr: AnimManager, table: dict):
     if event.type == pygame.QUIT:
@@ -108,7 +108,7 @@ def event_loop(itrs: list[Interaction]):
     pygame.display.init()
 
     screen = pygame.display.set_mode((1850, 1024))
-    pygame.display.set_caption("HVM Vis")
+    pygame.display.set_caption("HVM3 Node Visualizer")
     clock = pygame.time.Clock()
 
     table = get_table_metrics()

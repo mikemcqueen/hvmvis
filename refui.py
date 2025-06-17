@@ -17,6 +17,7 @@ GRAY = (128, 128, 128)
 LIGHT_GRAY = (64, 64, 64)
 BRIGHT_GREEN = (0, 255, 0)
 YELLOW = (255, 255, 0)
+BRIGHT_ORANGE = (255, 190, 30)
 ORANGE = (255, 165, 0)
 
 def ref_name(def_idx: int):
@@ -56,29 +57,32 @@ class RefRect:
         if not self.ref.contains(loc): return None
         for node in self.ref.nodes:
             for node_term in (node.pos, node.neg):
-                if loc == node_term.stores[0].loc:
+                if loc == node_term.mem_loc:
                     return node_term
         return None
 
     def draw(self, surface: pygame.Surface, table: dict):
         if not self.visible: return
 
-        if self.selected or (self.color_scheme == "bright terminal"):
+        if self.ref.memops_done():
+            text_color = ORANGE
+            done_color = ORANGE
+            header_color = DIM_YELLOW
+            border_color = ORANGE
+            line_color = ORANGE
+        elif self.selected or (self.color_scheme == "bright terminal"):
             text_color = BRIGHT_GREEN
+            done_color = BRIGHT_ORANGE
             header_color = YELLOW
             border_color = BRIGHT_GREEN
             line_color = BRIGHT_GREEN
-        elif self.color_scheme == "dim terminal":
+        else: # self.color_scheme == "dim terminal":
             text_color = DIM_GREEN
+            done_color = ORANGE
             header_color = DIM_YELLOW
             border_color = DIM_GREEN
             line_color = DIM_GREEN
-        else:  # soft
-            text_color = WHITE
-            header_color = WHITE
-            border_color = WHITE
-            line_color = WHITE
-
+  
         title_font = fonts.title
         font = fonts.content
 
@@ -121,19 +125,20 @@ class RefRect:
         # Draw data rows
         row_y = line_y + 1 + table['row_spacing']['margin']
         for node in self.ref.nodes:
-            for term in (node.neg, node.pos):
-                mem_loc = term.stores[0].loc
+            for node_term in (node.neg, node.pos):
+                term = node_term.term
                 current_x = self.x + table['col_spacing']['margin']
                 values = [
-                    f"{mem_loc:04d}",
+                    f"{node_term.mem_loc:04d}",
                     term.tag[:3],
                     f"{term.lab:03d}",
                     f"{term.loc:04d}"
                 ]
                 for i, value in enumerate(values):
-                    value_surface = font.render(value, True, text_color)
+                    color = done_color if node_term.memops_done() else text_color
+                    value_surface = font.render(value, True, color)
                     surface.blit(value_surface, (current_x, row_y))
-                    if term.empty(): # memory loc only for empty terms
+                    if node_term.empty: # draw memory loc only for empty terms
                         break
                     current_x += table['column_widths'][i]
                     if i < len(values) - 1:
@@ -248,24 +253,26 @@ class RefManager:
             rect.visible = True
 
     def rect_from_loc(self, loc: int) -> RefRect:
+        #return rect for rect in self.all_rects if rect.ref.contains(loc) else None
         for rect in self.all_rects:
             if rect.ref.contains(loc):
                 return rect
         return None
 
+    """
     def get_dep_rects(self, rect: RefRect) -> list[RefRect]:
         dep_rects = []
         while rect and rect.ref.redex:
             # ref.redex is the redex as it originally occurred from within an
             # ExpandRef. The neg term of that redex likely originated somewhere
-            # else (neg.stores[0]), and may have been stored and reloaded from
-            # other intermediate location(s) (neg.loads[]) since then.
+            # else, and may have been stored and reloaded from other location(s)
+            # since then.
             #
             # For <make_leaf> -> <leaf> we want to know the loc (and ref) from
-            # which the neg term  was *last* loaded.
+            # which the neg term was *last* loaded.
             #
             neg = rect.ref.redex.neg
-            # TOOD: neg.tag constraint
+            # TODO: neg.tag constraint
             last_load = neg.loads and neg.loads[-1]
             if last_load and last_load.is_matnum_itr():
                 loc = last_load.loc
@@ -290,8 +297,10 @@ class RefManager:
             if rect:
                 dep_rects.append(rect)
         return dep_rects
+    """
 
     def toggle_show_dependencies(self):
+        """
         if self.show_deps_only:
             self.all_rects_visible()
             self.show_deps_only = False
@@ -306,3 +315,4 @@ class RefManager:
 
         self.only_rects_visible(dep_rects)
         self.show_deps_only = True
+        """
