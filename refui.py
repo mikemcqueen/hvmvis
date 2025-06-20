@@ -5,6 +5,7 @@ import pygame
 
 from fonts import fonts
 from hvm import ExpandRef, DefIdx, NodeTerm
+from text_cache import TextCache
 
 TITLE_FONT_SIZE = 14
 FONT_SIZE = 14
@@ -61,7 +62,7 @@ class RefRect:
                     return node_term
         return None
 
-    def draw(self, surface: pygame.Surface, table: dict):
+    def draw(self, surface: pygame.Surface, table: dict, text_cache: TextCache):
         if not self.visible: return
 
         if self.ref.memops_done():
@@ -136,7 +137,20 @@ class RefRect:
                 ]
                 for i, value in enumerate(values):
                     color = done_color if node_term.memops_done() else text_color
-                    value_surface = font.render(value, True, color)
+                    
+                    rendered_text = text_cache.get_rendered_text(value)
+                    
+                    if self.selected or (self.color_scheme == "bright terminal"):
+                        if not rendered_text.bright.surface or rendered_text.bright.color != color:
+                            rendered_text.bright.surface = font.render(value, True, color)
+                            rendered_text.bright.color = color
+                        value_surface = rendered_text.bright.surface
+                    else:
+                        if not rendered_text.dim.surface or rendered_text.dim.color != color:
+                            rendered_text.dim.surface = font.render(value, True, color)
+                            rendered_text.dim.color = color
+                        value_surface = rendered_text.dim.surface
+                    
                     surface.blit(value_surface, (current_x, row_y))
                     if node_term.empty: # draw memory loc only for empty terms
                         break
@@ -146,9 +160,10 @@ class RefRect:
                 row_y += table['metrics']['line_height'] + table['row_spacing']['intra_row']
 
 class RefManager:
-    def __init__(self, screen: pygame.Surface, table: dict):
+    def __init__(self, screen: pygame.Surface, table: dict, text_cache: TextCache):
         self.screen = screen
         self.table = table
+        self.text_cache = text_cache
         self.all_rects: list[RefRect] = []
         self.disp_rects: list[RefRect] = []
         self.ref_map = {}
@@ -231,7 +246,7 @@ class RefManager:
 
     def draw_all(self):
         for rect in self.disp_rects:
-            rect.draw(self.screen, self.table)
+            rect.draw(self.screen, self.table, self.text_cache)
 
     def get_selected(self) -> list[RefRect]:
         return [rect for rect in self.disp_rects if rect.selected]

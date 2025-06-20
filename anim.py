@@ -7,6 +7,7 @@ import pygame
 from hvm import MemOp, Term, Interaction
 from refui import * #RefManager, RefRect
 from fonts import fonts
+from text_cache import TextCache
 
 # Animation constants
 durations: dict[str, float] = {
@@ -190,10 +191,11 @@ def interpolate_color(color1: Color, color2: Color, t: float) -> Color:
     )
 
 class AnimManager:
-    def __init__(self, screen: pygame.Surface, ref_mgr: RefManager, table: dict):
+    def __init__(self, screen: pygame.Surface, ref_mgr: RefManager, table: dict, text_cache: TextCache):
         self.screen = screen
         self.ref_mgr = ref_mgr
         self.table = table
+        self.text_cache = text_cache
         self.anims: List[AnimState] = []
         self.ready: bool = True
         self.loc_map: dict[int, AnimState] = {}
@@ -333,7 +335,24 @@ class AnimManager:
         term = anim.term
         term_data = (term.tag[:3], f"{term.lab:03d}", f"{term.loc:04d}")
         for i, (value, col_x) in enumerate(zip(term_data, col_positions)):
-            text_surface = font.render(value, True, anim.color)
+            # Use cache for standard colors, render directly for interpolated colors
+            if anim.color in (DIM_GREEN, BRIGHT_GREEN, ORANGE, BRIGHT_ORANGE):
+                rendered_text = self.text_cache.get_rendered_text(value)
+                
+                if anim.color in (BRIGHT_GREEN, BRIGHT_ORANGE):
+                    if not rendered_text.bright.surface or rendered_text.bright.color != anim.color:
+                        rendered_text.bright.surface = font.render(value, True, anim.color)
+                        rendered_text.bright.color = anim.color
+                    text_surface = rendered_text.bright.surface
+                else:
+                    if not rendered_text.dim.surface or rendered_text.dim.color != anim.color:
+                        rendered_text.dim.surface = font.render(value, True, anim.color)
+                        rendered_text.dim.color = anim.color
+                    text_surface = rendered_text.dim.surface
+            else:
+                # Interpolated color - render directly
+                text_surface = font.render(value, True, anim.color)
+            
             draw_x = anim.cur_pos.x + col_x
             draw_y = anim.cur_pos.y
             surface.blit(text_surface, (draw_x, draw_y))

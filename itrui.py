@@ -4,6 +4,7 @@ from anim import AnimManager
 from fonts import fonts
 from refui import RefManager
 from hvm import *
+from text_cache import TextCache
 
 ORANGE = (255, 165, 0)
 BRIGHT_ORANGE = (255, 190, 30)
@@ -13,12 +14,13 @@ DIM_YELLOW = (192, 192, 0)
 
 class ItrManager:
     def __init__(self, screen: pygame.Surface, itrs: list[Interaction],
-                 ref_mgr: RefManager, anim_mgr: AnimManager, table: dict):
+                 ref_mgr: RefManager, anim_mgr: AnimManager, table: dict, text_cache: TextCache):
         self.screen = screen
         self.table = table
         self.itrs = itrs
         self.ref_mgr = ref_mgr
         self.anim_mgr = anim_mgr
+        self.text_cache = text_cache
         self.itr_idx = 0
         self.op_idx = 0
         self.rect = self.init_rect(screen)

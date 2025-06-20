@@ -7,6 +7,7 @@ from hvm import Interaction
 from refui import *
 from itrui import ItrManager
 from anim import AnimManager
+from text_cache import TextCache
 
 # Column character widths
 COLUMN_CHARS = [4, 3, 3, 4]  # mem, tag, lab, loc
@@ -112,10 +113,11 @@ def event_loop(itrs: list[Interaction]):
     clock = pygame.time.Clock()
 
     table = get_table_metrics()
+    text_cache = TextCache()
 
-    ref_mgr = RefManager(screen, table)
-    anim_mgr = AnimManager(screen, ref_mgr, table)
-    itr_mgr = ItrManager(screen, itrs, ref_mgr, anim_mgr, table)
+    ref_mgr = RefManager(screen, table, text_cache)
+    anim_mgr = AnimManager(screen, ref_mgr, table, text_cache)
+    itr_mgr = ItrManager(screen, itrs, ref_mgr, anim_mgr, table, text_cache)
 
     if itrs:
         ref_mgr.add_ref(itrs[0], "dim terminal")
