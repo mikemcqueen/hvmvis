@@ -4,6 +4,7 @@ from typing import List, Tuple, Optional, NamedTuple
 
 import pygame
 
+from commonui import Position
 from hvm import MemOp, Term, Interaction
 from refui import * #RefManager, RefRect
 from fonts import fonts
@@ -48,10 +49,6 @@ class Phase(NamedTuple):
             total += duration
             phases.append(cls(name, duration, total))
         return phases
-
-class Position(NamedTuple):
-    x: int
-    y: int
 
 # TODO: add to table metrics
 # or, you know, just add char width to table.x + table.width and

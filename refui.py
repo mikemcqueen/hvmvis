@@ -3,6 +3,7 @@ from typing import Tuple, Optional
 
 import pygame
 
+from commonui import Position
 from fonts import fonts
 from hvm import ExpandRef, DefIdx, NodeTerm
 from text_cache import TextCache
@@ -40,7 +41,7 @@ def ref_name(def_idx: int):
     else:
         return d.get(def_idx, f"ref_{def_idx}")
 
-@dataclass
+@dataclass(eq=False)
 class RefRect:
     ref: ExpandRef
     x: int
@@ -62,7 +63,50 @@ class RefRect:
                     return node_term
         return None
 
-    def draw(self, surface: pygame.Surface, table: dict, text_cache: TextCache):
+    def draw_node_term(self, node_term: NodeTerm, surface: pygame.Surface, pos: Position, md: dict):
+        term = node_term.term
+        values = [
+            f"{node_term.mem_loc:04d}",
+            term.tag[:3],
+            f"{term.lab:03d}",
+            f"{term.loc:04d}"
+        ]
+        table = md['table']
+        color = md['done_color'] if node_term.memops_done() else md['text_color']
+        x_off = 0
+        for i, value in enumerate(values):
+            rendered_text = md['text_cache'].get_rendered_text(value)
+            if self.selected or (self.color_scheme == "bright terminal"):
+                if not rendered_text.bright.surface or rendered_text.bright.color != color:
+                    rendered_text.bright.surface = md['font'].render(value, True, color)
+                    rendered_text.bright.color = color
+                value_surface = rendered_text.bright.surface
+            else:
+                if not rendered_text.dim.surface or rendered_text.dim.color != color:
+                    rendered_text.dim.surface = md['font'].render(value, True, color)
+                    rendered_text.dim.color = color
+                value_surface = rendered_text.dim.surface
+                    
+            surface.blit(value_surface, (pos.x + x_off, pos.y))
+            if node_term.empty: # draw memory loc only for empty terms
+                break
+            x_off += table['column_widths'][i]
+            if i < len(values) - 1:
+                x_off += table['col_spacing_by_index'][i + 1]
+
+    def draw_metadata(self, node_term: NodeTerm, surface: pygame.Surface, y: int, md: dict):
+        if not md['show_md']: return
+
+        stor_idx = node_term.memop_idx
+        stor_max = len(node_term.memops) - 1
+        value = f"{stor_idx}/{stor_max}"
+        color = md['done_color'] if node_term.memops_done() else md['text_color']
+        value_surf = md['font'].render(value, True, color)
+        table = md['table']
+        x = self.x - (table['metrics']['char_width'] * 3 + table['metrics']['half_char'])
+        surface.blit(value_surf, (x, y))
+
+    def draw(self, surface: pygame.Surface, md: dict):
         if not self.visible: return
 
         if self.ref.memops_done():
@@ -77,7 +121,7 @@ class RefRect:
             header_color = YELLOW
             border_color = BRIGHT_GREEN
             line_color = BRIGHT_GREEN
-        else: # self.color_scheme == "dim terminal":
+        else: # not self.selected or self.color_scheme == "dim terminal":
             text_color = DIM_GREEN
             done_color = ORANGE
             header_color = DIM_YELLOW
@@ -86,6 +130,8 @@ class RefRect:
   
         title_font = fonts.title
         font = fonts.content
+
+        table = md['table']
 
         # Draw background
         pygame.draw.rect(surface, BLACK, (self.x, self.y, self.width, self.height))
@@ -107,15 +153,15 @@ class RefRect:
         # Column headers
         headers = ["MEM", "TAG", "LAB", "LOC"]
         title_bottom = title_y + table['title_metrics']['line_height']
+        header_x = self.x + table['col_spacing']['margin']
         header_y = title_bottom + table['row_spacing']['title_to_header']
-        current_x = self.x + table['col_spacing']['margin']
 
         for i, header in enumerate(headers):
             header_surface = font.render(header, True, header_color)
-            surface.blit(header_surface, (current_x, header_y))
-            current_x += table['column_widths'][i]
+            surface.blit(header_surface, (header_x, header_y))
+            header_x += table['column_widths'][i]
             if i < len(headers) - 1:
-                current_x += table['col_spacing_by_index'][i + 1]
+                header_x += table['col_spacing_by_index'][i + 1]
 
         # Draw horizontal line under headers
         line_y = header_y + table['metrics']['line_height'] + table['row_spacing']['header_to_line']
@@ -124,40 +170,19 @@ class RefRect:
         pygame.draw.line(surface, line_color, (line_left, line_y), (line_right, line_y), 1)
 
         # Draw data rows
-        row_y = line_y + 1 + table['row_spacing']['margin']
+        md = {
+            **md,
+            'font': font,
+            'text_color': text_color,
+            'done_color': done_color,
+        }
+        x = self.x + table['col_spacing']['margin']
+        y = line_y + 1 + table['row_spacing']['margin']
         for node in self.ref.nodes:
             for node_term in (node.neg, node.pos):
-                term = node_term.term
-                current_x = self.x + table['col_spacing']['margin']
-                values = [
-                    f"{node_term.mem_loc:04d}",
-                    term.tag[:3],
-                    f"{term.lab:03d}",
-                    f"{term.loc:04d}"
-                ]
-                for i, value in enumerate(values):
-                    color = done_color if node_term.memops_done() else text_color
-                    
-                    rendered_text = text_cache.get_rendered_text(value)
-                    
-                    if self.selected or (self.color_scheme == "bright terminal"):
-                        if not rendered_text.bright.surface or rendered_text.bright.color != color:
-                            rendered_text.bright.surface = font.render(value, True, color)
-                            rendered_text.bright.color = color
-                        value_surface = rendered_text.bright.surface
-                    else:
-                        if not rendered_text.dim.surface or rendered_text.dim.color != color:
-                            rendered_text.dim.surface = font.render(value, True, color)
-                            rendered_text.dim.color = color
-                        value_surface = rendered_text.dim.surface
-                    
-                    surface.blit(value_surface, (current_x, row_y))
-                    if node_term.empty: # draw memory loc only for empty terms
-                        break
-                    current_x += table['column_widths'][i]
-                    if i < len(values) - 1:
-                        current_x += table['col_spacing_by_index'][i + 1]
-                row_y += table['metrics']['line_height'] + table['row_spacing']['intra_row']
+                self.draw_node_term(node_term, surface, Position(x, y), md)
+                self.draw_metadata(node_term, surface, y, md)
+                y += table['metrics']['line_height'] + table['row_spacing']['intra_row']
 
 class RefManager:
     def __init__(self, screen: pygame.Surface, table: dict, text_cache: TextCache):
@@ -168,14 +193,16 @@ class RefManager:
         self.disp_rects: list[RefRect] = []
         self.ref_map = {}
         self.show_deps_only: bool = False
+        self.show_md: bool = False
 
     def calculate_ref_dimensions(self, ref: ExpandRef) -> Tuple[int, int]:
         width = self.table['width']
         num_ops = len(ref.nodes) * 2
         height = (
             self.table['table_header_height'] + self.table['row_spacing']['margin'] * 2 +
-            num_ops * (self.table['metrics']['line_height'] + self.table['row_spacing']['intra_row']) -
-            self.table['row_spacing']['intra_row'] + self.table['table_border_thickness']
+            self.table['metrics']['line_height'] * num_ops +
+            self.table['row_spacing']['intra_row'] * (num_ops - 1) +
+            self.table['table_border_thickness']
         )
         return width, height
 
@@ -245,8 +272,13 @@ class RefManager:
     """
 
     def draw_all(self):
+        md = {
+            'table' : self.table,
+            'text_cache': self.text_cache,
+            'show_md': self.show_md
+        }
         for rect in self.disp_rects:
-            rect.draw(self.screen, self.table, self.text_cache)
+            rect.draw(self.screen, md)
 
     def get_selected(self) -> list[RefRect]:
         return [rect for rect in self.disp_rects if rect.selected]
@@ -273,6 +305,9 @@ class RefManager:
             if rect.ref.contains(loc):
                 return rect
         return None
+
+    def toggle_show_metadata(self):
+        self.show_md = not self.show_md
 
     """
     def get_dep_rects(self, rect: RefRect) -> list[RefRect]:

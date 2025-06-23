@@ -20,7 +20,7 @@ def get_table_metrics() -> dict:
 
     col_spacing = {
         'margin': border_thickness + metrics['half_char'],
-        'mem_term': metrics['char_width'],
+        'mem_term': metrics['half_char'],
         'intra_term': metrics['half_char']
     }
     col_spacing_by_index = [
@@ -31,9 +31,9 @@ def get_table_metrics() -> dict:
         col_spacing['margin']
     ]
     row_spacing = {
-        'title_to_header': metrics['quarter_line'],
-        'header_to_line': metrics['quarter_line'],
-        'margin': metrics['quarter_line'],
+        'title_to_header': 2, # metrics['quarter_line'],
+        'header_to_line': 2, # metrics['quarter_line'],
+        'margin': 2, # metrics['quarter_line'],
         'intra_row': 2
     }
     table_header_height = (
@@ -45,9 +45,9 @@ def get_table_metrics() -> dict:
         col_spacing['intra_term'] * 2
     )
     layout = {
-        'left_margin': 20,
+        'left_margin': metrics['char_width'] * 4,
         'top_margin':  85,
-        'vert_spacing': 20,
+        'vert_spacing': 10,
         'horz_spacing': term_width + metrics['char_width'] * 2
     }
     return {
@@ -73,6 +73,7 @@ def draw_instructions(screen: pygame.Surface, table: dict):
         "SPACE: Execute next",
         "Click: Toggle select",
         #"D:     Toggle dependencies",
+        "M:     Toggle metadata",
         f"+/-:   Speed({table['speed']})"
     ]
     y = 0
@@ -93,6 +94,8 @@ def event_handler(event, ref_mgr: RefManager, itr_mgr: ItrManager, anim_mgr: Ani
             itr_mgr.next()
         elif event.key == pygame.K_d:
             ref_mgr.toggle_show_dependencies()
+        elif event.key == pygame.K_m:
+            ref_mgr.toggle_show_metadata()
         elif event.key == pygame.K_MINUS:
             add_speed(-1, table)
         elif event.key == pygame.K_EQUALS and event.mod & pygame.KMOD_SHIFT:
