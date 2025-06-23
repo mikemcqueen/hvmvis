@@ -105,7 +105,8 @@ class NodeTerm:
     def mem_loc(self): return self.memops[0].loc
 
     def __repr__(self) -> str:
-        return f"{self.term} {type(self.node).__name__}({self.node.ref.def_idx if self.node and self.node.ref else 'None'})"
+        def_idx = self.node.ref.def_idx if self.node and self.node.ref else '??'
+        return f"{self.term} {type(self.node).__name__}({def_idx}) memop_idx {self.memop_idx}"
 
     def set(self, term: Term):
         # EMPTY_TERM is a hack for viewing/animation

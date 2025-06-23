@@ -131,8 +131,8 @@ class ItrManager:
             itr = self.itrs[self.itr_idx]
             if isinstance(itr, ExpandRef) and itr.nodes:
                 # hacky
-                if itr.def_idx < 7 or itr.def_idx >= DefIdx.MAT:
-                    self.ref_mgr.add_ref(itr, "dim terminal")
+                #if itr.def_idx < 7 or itr.def_idx >= DefIdx.MAT:
+                self.ref_mgr.add_ref(itr, "dim terminal")
 
         return True
 

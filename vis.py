@@ -10,7 +10,7 @@ from anim import AnimManager
 from text_cache import TextCache
 
 # Column character widths
-COLUMN_CHARS = [4, 3, 3, 4]  # mem, tag, lab, loc
+COLUMN_CHARS = [3, 3, 3, 3]  # mem, tag, lab, loc
 
 def get_table_metrics() -> dict:
     metrics = get_font_metrics(fonts.content)
@@ -42,7 +42,7 @@ def get_table_metrics() -> dict:
     )
     term_width = (
         sum(chars * metrics['char_width'] for chars in COLUMN_CHARS[1:]) +
-        col_spacing['intra_term'] * 2
+        col_spacing['intra_term'] * (len(COLUMN_CHARS[1:]) - 1)
     )
     layout = {
         'left_margin': metrics['char_width'] * 4,
@@ -111,7 +111,7 @@ def event_handler(event, ref_mgr: RefManager, itr_mgr: ItrManager, anim_mgr: Ani
 def event_loop(itrs: list[Interaction]):
     pygame.display.init()
 
-    screen = pygame.display.set_mode((1850, 1024))
+    screen = pygame.display.set_mode((1850, 1050))
     pygame.display.set_caption("HVM3 Node Visualizer")
     clock = pygame.time.Clock()
 

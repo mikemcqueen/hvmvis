@@ -320,7 +320,7 @@ class AnimManager:
         # TODO: dumb to calculate this every time, they don't change
         col_positions = []
         pos_x = 0
-        for i in range(1, 4):  # TAG (1), LAB (2), LOC (3) columns
+        for i in range(1, len(self.table['column_widths'])):
             col_positions.append(pos_x)
             if i < 3:  # Don't add spacing after the last column
                 pos_x += (
@@ -330,7 +330,11 @@ class AnimManager:
 
         # Draw each field of the term (TAG, LAB, LOC)
         term = anim.term
-        term_data = (term.tag[:3], f"{term.lab:03d}", f"{term.loc:04d}")
+        term_data = (
+            term.tag[:3],
+            f"{term.lab:03d}",
+            f"{term.loc:03d}"
+        )
         for i, (value, col_x) in enumerate(zip(term_data, col_positions)):
             # Use cache for standard colors, render directly for interpolated colors
             if anim.color in (DIM_GREEN, BRIGHT_GREEN, ORANGE, BRIGHT_ORANGE):
@@ -355,11 +359,11 @@ class AnimManager:
             surface.blit(text_surface, (draw_x, draw_y))
 
     def slide_out(self, term: Term, rect: RefRect, memop: MemOp) -> AnimState:
-        if memop.node.get(memop.loc).term != memop.got:
-            node_term = memop.node.get(memop.loc)
+        node_term = memop.node.get(memop.loc)
+        if node_term.term != memop.got:
             print(f"memop {memop} node_term {node_term} memops {node_term.memops}")
+        assert node_term.term == memop.got
 
-        assert memop.node.get(memop.loc).term == memop.got
         if not rect: return None
 
         x = term_x_pos(rect, self.table)

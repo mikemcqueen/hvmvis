@@ -66,10 +66,10 @@ class RefRect:
     def draw_node_term(self, node_term: NodeTerm, surface: pygame.Surface, pos: Position, md: dict):
         term = node_term.term
         values = [
-            f"{node_term.mem_loc:04d}",
+            f"{node_term.mem_loc:03d}",
             term.tag[:3],
             f"{term.lab:03d}",
-            f"{term.loc:04d}"
+            f"{term.loc:03d}"
         ]
         table = md['table']
         color = md['done_color'] if node_term.memops_done() else md['text_color']
