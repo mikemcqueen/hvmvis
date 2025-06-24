@@ -36,7 +36,7 @@ def make_memop(seq: int, parts: list[str]) -> MemOpBase:
         loc = int(parts[7])
 
     elif op == 'EXCH':
-        # EXCH format: counter,thread,itr_type,EXCH,lvl,got_tag,got_loc,put_tag,put_loc,loc
+        # EXCH format: counter,thread,itr_name,EXCH,lvl,got_tag,got_loc,put_tag,put_loc,loc
         got_tag = parts[5]
         got_loc = int(parts[6])
         got = Term(got_tag, 0, got_loc)
@@ -98,6 +98,7 @@ class RedexBuilder:
     redexes: list[Redex] = field(default_factory=list)
     redex_map: dict[tuple[Term, Term], Redex] = field(default_factory=dict)
 
+    """
     def get_node_term(self, term: Term):
         if term in self.term_map:
             return self.term_map[term]
@@ -112,17 +113,30 @@ class RedexBuilder:
                 # it in a NodeTerm for convenience
                 node_term = NodeTerm(term)
             return node_term
+    """
 
     def push(self, redex: Redex, itr: Interaction):
         assert itr
-        redex.itr = itr
+        redex.psh_itr = itr
+        # Redexes are constructed by the parser from MemOps, which only contain
+        # the `term` field of a NodeTerm. Here we know the interaction this
+        # redex originated from, which allows us to fixup the `node` field.
+        if isinstance(itr, ExpandRef) and itr.nodes:
+            for nod_trm in (redex.neg, redex.pos):
+                if not nod_trm.term.has_loc(): continue
+                node = itr.get_node(nod_trm.loc)
+                if node:
+                    nod_trm.node = node
+
+        # TODO: terms emergent in code, terms from non-visible refs
+
         itr.redexes.append(redex)
 
         # only used to count redexes, could just be an int
         self.redexes.append(redex)
         # this is basically a way of ignoring ERA~REFs
-        if redex.neg.has_loc() or redex.pos.has_loc():
-            key = (redex.neg, redex.pos)
+        if redex.neg.term.has_loc() or redex.pos.term.has_loc():
+            key = (redex.neg.term, redex.pos.term)
             if key in self.redex_map:
                 print(f"key in map: {key}")
             assert key not in self.redex_map
@@ -145,10 +159,12 @@ class RefBuilder:
     refs: list[ExpandRef]
     ref: Optional[ExpandRef] = None
 
+    """
     def add_node_term(self, node_term: NodeTerm):
         if not node_term.term.has_loc(): return
         assert not node_term.term in self.term_map
         self.term_map[node_term.term] = node_term
+    """
 
     # total hack
     def hijack(self, ref: ExpandRef, add_ref: bool = True):
@@ -165,17 +181,17 @@ class RefBuilder:
         if log: print(f"new {redex.neg.tag}{redex.pos.tag} def_idx: {loc}")
 
     def add(self, fst: MemOp, snd: MemOp):
-        # TODO move conditional out of builder, into parse loop?
-        #assert is_node_store(fst) and is_node_store(snd)
         if not self.ref:
+            # the REF part is probably bench_parallel_sum specific. maybe should
+            # use mem_loc == 2 instead
             assert fst.is_root_itr() and snd.is_root_itr() and fst.put.tag == 'REF'
             self.ref = AppRef(fst.put.loc, None, len(self.itrs))
             self.refs.append(self.ref)
             self.itrs.append(self.ref)
 
         if log: print(f"adding node: {fst.put} {snd.put} @ {fst.loc}")
-        neg = NodeTerm(fst.put, memops=[fst])
-        pos = NodeTerm(snd.put, memops=[snd])
+        neg = InPlaceNodeTerm(fst.put, memops=[fst])
+        pos = InPlaceNodeTerm(snd.put, memops=[snd])
         node = Node(neg, pos, self.ref)
         neg.node = node
         pos.node = node
@@ -183,8 +199,10 @@ class RefBuilder:
         self.ref.nodes.append(node)
         if log: print(f"added node: {len(self.ref.nodes)}")
 
+        """
         self.add_node_term(neg)
         self.add_node_term(pos)
+        """
 
     def done(self):
         if self.ref:
@@ -217,6 +235,7 @@ class ItrBuilder:
 
     def add(self, memop: MemOp):
         assert self.itr
+        """
         #if memop.got and memop.got.has_loc():
         #    node_term = self.term_map[memop.got]
         #    node_term.loads.append(memop)
@@ -230,6 +249,7 @@ class ItrBuilder:
             #else:
             #    node_term = self.term_map[memop.put]
             #    node_term.stores.append(memop)
+        """
 
         node = node_from_loc(self.refs, memop.loc)
         memop.node = node
@@ -284,16 +304,13 @@ def make_all(memops: list[MemOpBase]) -> (list[Redex], list[ExpandRef], list[Int
             continue
 
         if fst.op == 'PUSH':
-            itr = ref_bldr.ref if ref_bldr.ref else itr_bldr.itr
-            redex_bldr.push(fst, itr)
+            psh_itr = ref_bldr.ref if ref_bldr.ref else itr_bldr.itr
+            redex_bldr.push(fst, psh_itr)
             continue
 
-        # can i move this above is_redex_push()?
-        # or peek into queue to see if next is also a node_stor?
-        # and while fst and is_node_store(fst): above
+        # i guess a ref only contains node stores and redex pushes?
         ref_bldr.done()
 
-        # TODO: is_redex_pop(fst)
         if fst.op == 'POP':
             itr_bldr.done()
             snd = ops_que.popleft()
@@ -308,10 +325,9 @@ def make_all(memops: list[MemOpBase]) -> (list[Redex], list[ExpandRef], list[Int
 
         if log: print(f"{fst}")
 
-        # if a MATNUM is STORing a NUM, it is a new node it has created
+        # if a MATNUM is STORing a NUM, it is a new node that it has created
         if fst.is_matnum_itr() and fst.op == 'STOR' and fst.put.has_num_tag():
             snd = ops_que.popleft()
-            #ref_bldr.new(last_popped, DefIdx.MAT + last_popped.neg.loc)
             itr_bldr.itr.def_idx = DefIdx.MAT + fst.loc
             ref_bldr.hijack(itr_bldr.itr)
             ref_bldr.add(fst, snd)
@@ -338,7 +354,6 @@ def parse_file(filename: str) -> list[MemOpBase]:
 
 def sum_nodes(refs: list[ExpandRef]) -> int:
     return sum(len(a.nodes) for a in refs)
-
 
 def main(filename: str):
     memops = parse_file(filename)

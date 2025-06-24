@@ -16,7 +16,7 @@ class Term(NamedTuple):
     def __repr__(self) -> str:
         return f"{self.tag[:3]},{self.lab:03d},{self.loc:04d}"
 
-    def taken(self):
+    def taken(self) -> bool:
         return self.tag == TAKEN_TAG
 
     def has_loc(self) -> bool:
@@ -39,9 +39,9 @@ class MemOpBase:
 @dataclass(eq=False)
 class MemOp(MemOpBase):
     lvl: int
-    put: Optional[Term]
-    got: Optional[Term]
-    # a MemOp originates in an interaction.
+    put: Optional[Term] = None
+    got: Optional[Term] = None
+    # a MemOp originates in an interaction
     itr: Optional['Interaction'] = None
     # a MemOp operates on a memory location within a Node
     node: Optional['Node'] = None
@@ -80,14 +80,40 @@ class MemOp(MemOpBase):
     def is_matnum_itr(self) -> bool:
         return self.itr_name[:3] == 'MAT' and self.itr_name[3:] in NUM_TAGS
 
+# A "moveable" term + the node (if any) it originated from
 @dataclass(eq=False)
-class Redex(MemOpBase):
-    neg: Term
-    pos: Term
-    itr: Optional['Interaction'] = None  # the interaction this redex was pushed from
+class NodeTerm:
+    term: Term
+    node: Optional['Node | NodeProxy'] = None
+
+    @property
+    def tag(self): return self.term.tag
+    @property
+    def lab(self): return self.term.lab
+    @property
+    def loc(self): return self.term.loc
 
     def __repr__(self) -> str:
-        return f"{self.neg} {self.pos} itr.idx({self.itr.idx})"
+        def_idx = self.node.ref.def_idx if self.node else '??'
+        return f"NodeTerm {self.term} {type(self.node).__name__}({def_idx})"
+
+    def copy(self) -> 'NodeTerm':
+        return NodeTerm(self.term, self.node)
+
+@dataclass(eq=False)
+class Redex(MemOpBase):
+    neg: NodeTerm
+    pos: NodeTerm
+    # the interaction this redex was pushed from
+    psh_itr: Optional['Interaction'] = None
+
+    def __repr__(self) -> str:
+        return f"Redex {self.neg} {self.pos} psh_itr.idx({self.psh_itr.idx})"
+
+    def get_node_term(self, term: Term) -> NodeTerm:
+        if term == self.neg: return self.neg
+        if term == self.pos: return self.pos
+        return None
 
     @classmethod
     def new(cls, neg: MemOp, pos: MemOp):
@@ -103,32 +129,28 @@ class Redex(MemOpBase):
             op = 'PUSH',
             loc = neg.loc,
             # Redex
-            neg = neg.put,
-            pos = pos.put
+            neg = NodeTerm(neg.put),
+            pos = NodeTerm(pos.put)
         )
 
+# A static node term that represents a fixed location in "node memory"
 @dataclass(eq=False)
-class NodeTerm:
-    term: Term
-    node: Optional['Node | NodeProxy'] = None
+class InPlaceNodeTerm(NodeTerm):
     memops: list[MemOp] = field(default_factory=list)
     memop_idx: int = 0
+    empty: bool = False
+    # the origin node (and term) of whatever term currently inhabits this node
+    origin: Optional[NodeTerm] = None
+
     # hack (i think) for determining ref dependencies. feels wrong. re-visit.
     #loads: list[MemOp] = field(default_factory=list)
-    empty: bool = False
 
-    @property
-    def tag(self): return self.term.tag
-    @property
-    def lab(self): return self.term.lab
-    @property
-    def loc(self): return self.term.loc
     @property
     def mem_loc(self): return self.memops[0].loc
 
     def __repr__(self) -> str:
-        def_idx = self.node.ref.def_idx if self.node and self.node.ref else '??'
-        return f"{self.term} {type(self.node).__name__}({def_idx}) memop_idx {self.memop_idx}"
+        base_repr = super().__repr__()
+        return f"{base_repr} memop_idx {self.memop_idx}"
 
     def set(self, term: Term):
         # EMPTY_TERM is a hack for viewing/animation
@@ -142,6 +164,10 @@ class NodeTerm:
         else:
             self.empty = True
 
+    def set_origin(self, nod_trm: NodeTerm):
+        self.set(nod_trm.term)
+        self.origin = nod_trm
+        
     def memops_done(self):
         return self.memop_idx == len(self.memops) - 1
 
@@ -151,23 +177,33 @@ class NodeProxy:
 
 @dataclass(eq=False)
 class Node:
-    neg: NodeTerm
-    pos: NodeTerm
+    neg: InPlaceNodeTerm
+    pos: InPlaceNodeTerm
     ref: 'ExpandRef'
+    # the redex (if any) that was pushed from within this node's ref, which
+    # contains a term with the loc of this node. it helps us determine a
+    # "context" for this node.
+    redex: Optional[Redex] = None
+
     # this might make sense
     #parent: Optional[Node]
     #child: Optional[Node]
 
-    def _validate(self, loc: int):
+    def contains(self, loc: int):
         neg_loc = self.neg.mem_loc
-        assert loc in (neg_loc, neg_loc + 1), f"loc {loc} neg_loc {neg_loc}"
+        return loc in (neg_loc, neg_loc + 1)
 
-    def get(self, loc: int) -> NodeTerm:
-        self._validate(loc)
+    def get(self, loc: int) -> InPlaceNodeTerm:
+        assert self.contains(loc), f"loc {loc} neg_loc {neg_loc}"
         return self.neg if loc == self.neg.mem_loc else self.pos
 
-    def set(self, loc: int, term: Term):
-        self.get(loc).set(term)
+    # funky.
+    def set(self, loc: int, term: Term | NodeTerm):
+        nod_trm = self.get(loc)
+        if isinstance(term, Term):
+            nod_trm.set(term)
+        else:
+            nod_trm.set_origin(term)
 
     def take(self, loc: int):
         self.set(loc, TAKEN_TERM)
@@ -193,9 +229,11 @@ class HasNodes(ABC):
 @dataclass(eq=False, kw_only=True)
 class Interaction(ABC):
     idx: int
+    # the popped redex that resulted in this interaction
     redex: Optional[Redex] = None
-    memops: list[MemOp] = field(default_factory=list)
+    # redexes pushed in this interaction
     redexes: list[Redex] = field(default_factory=list)
+    memops: list[MemOp] = field(default_factory=list)
 
     @abstractmethod
     def name(self) -> str:
@@ -214,7 +252,17 @@ class ExpandRef(Interaction, HasNodes):
     def last_loc(self) -> int: return self.nodes[-1].pos.mem_loc
 
     def __repr__(self) -> str:
-        return f"def_idx: {self.def_idx} {self.redex}"
+        return f"ExpandRef {self.id} {self.redex}"
+
+    def _validate(self, loc: int):
+        neg_loc = self.neg.mem_loc
+        assert loc in (neg_loc, neg_loc + 1), f"loc {loc} neg_loc {neg_loc}"
+
+    def get_node(self, loc: int) -> Node:
+        for node in self.nodes:
+            if node.contains(loc):
+                return node # .get(loc)
+        return None
 
     def memops_done(self) -> bool:
         for node in self.nodes:

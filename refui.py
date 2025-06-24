@@ -55,7 +55,7 @@ class RefRect:
     def get_rect(self) -> pygame.Rect:
         return pygame.Rect(self.x, self.y, self.width, self.height)
 
-    def get_node_term(self, loc: int) -> Optional[NodeTerm]:
+    def get_node_term(self, loc: int) -> Optional[InPlaceNodeTerm]:
         if not self.ref.contains(loc): return None
         for node in self.ref.nodes:
             for node_term in (node.pos, node.neg):
@@ -63,7 +63,7 @@ class RefRect:
                     return node_term
         return None
 
-    def draw_node_term(self, node_term: NodeTerm, surface: pygame.Surface, pos: Position, md: dict):
+    def draw_node_term(self, node_term: InPlaceNodeTerm, surface: pygame.Surface, pos: Position, md: dict):
         term = node_term.term
         values = [
             f"{node_term.mem_loc:03d}",
@@ -94,7 +94,7 @@ class RefRect:
             if i < len(values) - 1:
                 x_off += table['col_spacing_by_index'][i + 1]
 
-    def draw_counts(self, node_term: NodeTerm, surface: pygame.Surface, y: int, md: dict):
+    def draw_counts(self, node_term: InPlaceNodeTerm, surface: pygame.Surface, y: int, md: dict):
         stor_idx = node_term.memop_idx
         stor_max = len(node_term.memops) - 1
         value = f"{stor_idx}/{stor_max}"
@@ -140,7 +140,7 @@ class RefRect:
         
         return None
 
-    def draw_kind(self, node_term: NodeTerm, surface: pygame.Surface, y: int, md: dict):
+    def draw_kind(self, node_term: InPlaceNodeTerm, surface: pygame.Surface, y: int, md: dict):
         kind = self.get_kind(node_term)
         if not kind: return
         color = md['done_color'] if node_term.memops_done() else md['text_color']
@@ -149,7 +149,7 @@ class RefRect:
         x = self.x + table['width'] + table['metrics']['char_width']
         surface.blit(kind_surf, (x, y))
 
-    def draw_metadata(self, node_term: NodeTerm, surface: pygame.Surface, y: int, md: dict):
+    def draw_metadata(self, node_term: InPlaceNodeTerm, surface: pygame.Surface, y: int, md: dict):
         if not md['show_md']: return
         self.draw_counts(node_term, surface, y, md)
         #self.draw_kind(node_term, surface, y, md)

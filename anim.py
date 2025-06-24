@@ -31,13 +31,16 @@ class Phase(NamedTuple):
 
     @classmethod
     def make_list(cls, *names: str) -> list['Phase']:
-        phases = []
+        phases: list['Phase'] = []
+        return cls.append(phases, *names)
+        """
         total = 0.0
         for name in names:
             duration = durations[name]
             total += duration
             phases.append(cls(name, duration, total))
         return phases
+        """
 
     @classmethod
     def append(cls, phases: list['Phase'], *names: str) -> list['Phase']:
@@ -71,8 +74,8 @@ def term_x_pos(rect: RefRect, table: dict) -> int:
 
 def term_y_pos(rect: RefRect, loc: int, table: dict) -> Optional[int]:
     for i, node in enumerate(rect.ref.nodes):
-        for j, node_term in enumerate((node.neg, node.pos)):
-            if loc == node_term.mem_loc:
+        for j, nod_trm in enumerate((node.neg, node.pos)):
+            if loc == nod_trm.mem_loc:
                 return (rect.y + table['top_row_y'] + (i * 2 + j) *
                     (table['metrics']['line_height'] +
                      table['row_spacing']['intra_row'])
@@ -81,9 +84,8 @@ def term_y_pos(rect: RefRect, loc: int, table: dict) -> Optional[int]:
 
 @dataclass
 class AnimState:
-    term: Term
+    nod_trm: NodeTerm
     itr: Interaction
-    start_time: float
     beg_pos: Position
     phases: list[Phase]
 
@@ -95,6 +97,7 @@ class AnimState:
     end_pos: Optional[Position] = None
     alpha: float = 255
     color: Optional[Color] = None
+    start_time: float = field(default_factory=time.monotonic)
     #subs: list['AnimState'] = field(default_factory=list)
     #in_flight: bool = False
 
@@ -294,8 +297,8 @@ class AnimManager:
                 anim.end_pos = anim.beg_pos
             anim.color = interpolate_color(BRIGHT_GREEN, DIM_GREEN, t)
             if anim.to_rect:
-                node_term = anim.to_rect.get_node_term(anim.to_loc)
-                node_term.node.set(anim.to_loc, anim.term)
+                to_nod = anim.to_rect.get_node_term(anim.to_loc).node
+                to_nod.set(anim.to_loc, anim.nod_trm)
                 anim.to_rect = None
                 """
                 next_anim = anim.notify()
@@ -329,7 +332,7 @@ class AnimManager:
                 )
 
         # Draw each field of the term (TAG, LAB, LOC)
-        term = anim.term
+        term = anim.nod_trm
         term_data = (
             term.tag[:3],
             f"{term.lab:03d}",
@@ -358,10 +361,10 @@ class AnimManager:
             surface.blit(txt_surf, (pos.x + col_x, pos.y))
 
     def slide_out(self, term: Term, rect: RefRect, memop: MemOp) -> AnimState:
-        node_term = memop.node.get(memop.loc)
-        if node_term.term != memop.got:
-            print(f"memop {memop} node_term {node_term} memops {node_term.memops}")
-        assert node_term.term == memop.got
+        nod_trm = memop.node.get(memop.loc)
+        if term != nod_trm.term:
+            print(f"{term} {nod_trm} memops {nod_trm.memops}")
+        assert term == nod_trm.term
 
         if not rect: return None
 
@@ -371,15 +374,9 @@ class AnimManager:
 
         last_phase = 'fade_out' if term.tag == 'SUB' else 'wait'
         phases = ['fade_in', 'slide_out', last_phase]
-        anim = AnimState(
-            term = term,
-            itr = memop.itr,
-            start_time = time.monotonic(),
-            phases = Phase.make_list(*phases),
-            from_rect = rect,
-            beg_pos = Position(x, y),
-            color = DIM_GREEN
-        )
+        anim = AnimState(nod_trm.copy(), memop.itr, Position(x, y),
+                         Phase.make_list(*phases), from_rect = rect,
+                         color = DIM_GREEN)
         """
         if loc in self.loc_map:
             active = self.loc_map[loc]
@@ -393,29 +390,33 @@ class AnimManager:
         self.slide_out(memop.got, rect, memop)
 
     # NOTE this is unpredictable if two terms exist with same fields
+    # TODO: can this be changed to use NodeTerm?
     def find_anim(self, term: Term, itr: Interaction) -> AnimState:
         found = None
         for anim in self.anims:
-            if itr.idx == anim.itr.idx and term == anim.term:
+            if itr.idx == anim.itr.idx and term == anim.nod_trm.term:
                 if found:
                     print(f"found 2 x {term}:{itr.idx} @ {itr.name()}")
                     assert not found
                 found = anim
         return found
 
-    # a term was either emergent in code, was taken from a non-visible ref,
+    # a term was either emergent in code, or was taken from a non-visible ref,
     # or was taken from the current redex. make it "appear out of nowhere"
     def manifest(self, term: Term, itr: Interaction) -> AnimState:
-        x = (self.screen.get_width() - self.table['term_width']) / 2
+        # was term from redex?
+        nod_trm = itr.redex.get_node_term(term)
+        # TODO:
+        #   was a "emergent" term (such as VAR in MATU32)
+        #   came from hidden ref
+        #assert nod_trm, f"no node term for {term}"
+        if not nod_trm:
+            nod_trm = NodeTerm(term)
+
+        x = (self.screen.get_width() - self.table['term_width']) // 2
         y = TOP
-        anim = AnimState(
-            term = term,
-            itr = itr,
-            start_time = time.monotonic(),
-            phases = Phase.make_list('fade_in'),
-            beg_pos = Position(x, y),
-            color = DIM_GREEN # TODO, if not rect.selected else BRIGHT_GREEN
-        )
+        anim = AnimState(nod_trm.copy(), itr, Position(x, y),
+                         Phase.make_list('fade_in'), color = DIM_GREEN)
         self.add(anim)
         return anim
 
@@ -452,10 +453,11 @@ class AnimManager:
         rect = self.ref_mgr.get_rect(memop.node.ref)
         got_anim = self.slide_out(memop.got, rect, memop)
         put_anim = self.find_anim(memop.put, memop.itr)
-        # call node_term.set() below *after* slide_out above as set() updates state
+        # update the dst node state now if the dst ref isn't visible
+        # call NodeTerm.set() below *after* slide_out() above as set() updates state
         if not rect:
-            node_term = memop.node.get(memop.loc)
-            node_term.set(memop.put)
+            dst_nod_trm = memop.node.get(memop.loc)
+            dst_nod_trm.set(memop.put)
         if not put_anim:
             # don't bother manifesting 'emergent' terms that slide to nowhere
             if not got_anim:
