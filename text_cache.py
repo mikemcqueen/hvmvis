@@ -1,8 +1,9 @@
 from dataclasses import dataclass, field
-from typing import Optional, Tuple
+from typing import Optional
+
 import pygame
 
-Color = Tuple[int, int, int]
+from commonui import Color
 
 @dataclass(eq=False)
 class RenderedSurface:
@@ -13,7 +14,7 @@ class RenderedSurface:
 class RenderedText:
     text: str
     dim: RenderedSurface = field(default_factory=RenderedSurface)
-    bright: RenderedSurface = field(default_factory=RenderedSurface)
+    brt: RenderedSurface = field(default_factory=RenderedSurface)
 
 class TextCache:
     def __init__(self):

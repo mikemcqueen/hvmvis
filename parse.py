@@ -1,13 +1,16 @@
 from collections import deque
-import traceback
 import sys
+import traceback
 
 from hvm import *
 from vis import event_loop
 
 TermMap = dict[Term, NodeTerm]
 
-def make_memop(seq: int, parts: list[str]) -> MemOp:
+log = False
+
+def make_memop(seq: int, parts: list[str]) -> MemOpBase:
+    assert len(parts) >= 7
     # Extract basic fields (ignoring counter at index 0)
     tid = int(parts[1])
     itr_name = parts[2]
@@ -45,20 +48,19 @@ def make_memop(seq: int, parts: list[str]) -> MemOp:
         loc = int(parts[9])
 
     return MemOp(
-        seq=seq,
-        tid=tid,
-        itr_name=itr_name,
-        op=op,
-        lvl=lvl,
-        put=put,
-        got=got,
-        loc=loc
+        seq = seq,
+        tid = tid,
+        itr_name = itr_name,
+        op = op,
+        lvl = lvl,
+        put = put,
+        got = got,
+        loc = loc
     )
 
 def is_redex_push(mem_op: MemOp) -> bool:
     # Arbitrary limit here will bite me eventually
     # only works with TPC = 1. more threads means node address may be larger.
-    # should add "PUSH" op type
     return (
         mem_op.op == 'STOR' and
         mem_op.loc > 100000
@@ -75,8 +77,8 @@ def ref_from_loc(refs: list[ExpandRef], loc: int):
     for ref in refs:
         if ref.contains(loc):
             return ref
-    print(f"No ref for loc {loc} len(refs) {len(refs)}")
-    
+    if log: print(f"No ref for loc {loc} len(refs) {len(refs)}")
+
     return None
 
 def node_from_loc(refs: list[ExpandRef], loc: int):
@@ -86,7 +88,7 @@ def node_from_loc(refs: list[ExpandRef], loc: int):
         node_loc = node.neg.mem_loc
         if loc in (node_loc, node_loc + 1):
             return node
-    print(f"No node for loc {loc} len(ref.nodes) {len(ref.nodes)}")
+    if log: print(f"No node for loc {loc} len(ref.nodes) {len(ref.nodes)}")
     return None
 
 @dataclass(eq=False)
@@ -111,15 +113,16 @@ class RedexBuilder:
                 node_term = NodeTerm(term)
             return node_term
 
-    def push(self, neg_op: MemOp, pos_op: MemOp, itr: Interaction):
-        #redex = Redex(self.get_node_term(neg_op.put), self.get_node_term(pos_op.put)) #, ref)
-        redex = Redex(neg_op.put, pos_op.put, itr)
+    def push(self, redex: Redex, itr: Interaction):
+        assert itr
+        redex.itr = itr
+        itr.redexes.append(redex)
+
+        # only used to count redexes, could just be an int
         self.redexes.append(redex)
-        #print(f"push {redex.neg} {redex.pos}")
-        if neg_op.put.has_loc() or pos_op.put.has_loc():
-            # this is OK, but using NodeTerms in tuple might provide better
-            # validation, and faster hash
-            key = (neg_op.put, pos_op.put)
+        # this is basically a way of ignoring ERA~REFs
+        if redex.neg.has_loc() or redex.pos.has_loc():
+            key = (redex.neg, redex.pos)
             if key in self.redex_map:
                 print(f"key in map: {key}")
             assert key not in self.redex_map
@@ -129,10 +132,10 @@ class RedexBuilder:
         # this is basically a way of ignoring ERA~REFs
         if neg_op.got.has_loc() or pos_op.got.has_loc():
             popped = self.redex_map[(neg_op.got, pos_op.got)]
-            print(f"popped {popped}")
+            if log: print(f"popped {popped}")
             return popped
         else:
-            print(f"popped -None-")
+            if log: print(f"popped -None-")
             return None
 
 @dataclass(eq=False)
@@ -153,19 +156,13 @@ class RefBuilder:
         if add_ref:
             self.refs.append(ref)
 
-    def done(self):
-        if self.ref:
-            assert self.ref.nodes
-            print(f"done, ref {self.ref.def_idx} {self.ref.redex}")
-            self.ref = None
-
     def new(self, redex: Redex, loc: Optional[int] = None):
         assert not self.ref
         if not loc: loc = redex.pos.loc
         self.ref = AppRef(loc, redex, len(self.itrs))
         self.refs.append(self.ref)
         self.itrs.append(self.ref)
-        print(f"new {redex.neg.tag}{redex.pos.tag} def_idx: {loc}")
+        if log: print(f"new {redex.neg.tag}{redex.pos.tag} def_idx: {loc}")
 
     def add(self, fst: MemOp, snd: MemOp):
         # TODO move conditional out of builder, into parse loop?
@@ -176,7 +173,7 @@ class RefBuilder:
             self.refs.append(self.ref)
             self.itrs.append(self.ref)
 
-        print(f"adding node: {fst.put} {snd.put} @ {fst.loc}")
+        if log: print(f"adding node: {fst.put} {snd.put} @ {fst.loc}")
         neg = NodeTerm(fst.put, memops=[fst])
         pos = NodeTerm(snd.put, memops=[snd])
         node = Node(neg, pos, self.ref)
@@ -184,10 +181,16 @@ class RefBuilder:
         pos.node = node
 
         self.ref.nodes.append(node)
-        print(f"added node: {len(self.ref.nodes)}")
+        if log: print(f"added node: {len(self.ref.nodes)}")
 
         self.add_node_term(neg)
         self.add_node_term(pos)
+
+    def done(self):
+        if self.ref:
+            assert self.ref.nodes
+            if log: print(f"done, ref {self.ref.def_idx} {self.ref.redex}")
+            self.ref = None
 
 @dataclass(eq=False)
 class ItrBuilder:
@@ -210,13 +213,13 @@ class ItrBuilder:
         assert not self.itr
         self.itr = self.make_itr(itr_name, redex)
         self.itrs.append(self.itr)
-        print(f"new {redex.neg.tag}{redex.pos.tag} itr")
+        if log: print(f"new {redex.neg.tag}{redex.pos.tag} itr")
 
     def add(self, memop: MemOp):
         assert self.itr
-        if memop.got and memop.got.has_loc():
-            node_term = self.term_map[memop.got]
-            node_term.loads.append(memop)
+        #if memop.got and memop.got.has_loc():
+        #    node_term = self.term_map[memop.got]
+        #    node_term.loads.append(memop)
         if memop.put and memop.put.has_loc():
             # sometimes a new term is materialized out of thin air, e.g. VAR
             # in matnum; now is a good time to add it to the term_map
@@ -238,21 +241,31 @@ class ItrBuilder:
     def done(self):
         if self.itr:
             #assert self.itr.memops
-            print(f"done, itr {self.itr.name()} {self.itr.redex} ops {len(self.itr.memops)}")
+            if log: print(f"done, itr {self.itr.name()} {self.itr.redex} ops {len(self.itr.memops)}")
             self.itr = None
 
-def parse_log_file(file_content: str) -> (list[MemOp], list[Redex],
-                                          list[ExpandRef], list[Interaction]):
-    memops = []
+def parse_memops(file_content: str) -> list[MemOpBase]:
+    filtered = []
     lines = file_content.strip().split('\n')
     for line in lines:
-        if not line.strip():
-            continue
-        parts = line.split(',')
-        assert len(parts) >= 7
-        memop = make_memop(len(memops), parts)
-        memops.append(memop)
+        if line.strip():
+            filtered.append(line)
 
+    memops: list[MemOpBase] = []
+    lines_que = deque(filtered)
+    while lines_que:
+        line = lines_que.popleft()
+        memop = make_memop(len(memops), line.split(','))
+        if not is_redex_push(memop):
+            memops.append(memop)
+        else:
+            line = lines_que.popleft()
+            redex = Redex.new(memop, make_memop(len(memops), line.split(',')))
+            memops.append(redex)
+
+    return memops
+
+def make_all(memops: list[MemOpBase]) -> (list[Redex], list[ExpandRef], list[Interaction]):
     term_map: TermMap = {}
     itrs: list[Interaction] = []
     refs: list[ExpandRef] = []
@@ -270,11 +283,9 @@ def parse_log_file(file_content: str) -> (list[MemOp], list[Redex],
             ref_bldr.add(fst, snd)
             continue
 
-        if is_redex_push(fst):
-            snd = ops_que.popleft()
+        if fst.op == 'PUSH':
             itr = ref_bldr.ref if ref_bldr.ref else itr_bldr.itr
-            assert itr
-            redex_bldr.push(fst, snd, itr)
+            redex_bldr.push(fst, itr)
             continue
 
         # can i move this above is_redex_push()?
@@ -295,7 +306,7 @@ def parse_log_file(file_content: str) -> (list[MemOp], list[Redex],
                 itr_bldr.new(redex, fst.itr_name)
             continue
 
-        print(f"{fst}")
+        if log: print(f"{fst}")
 
         # if a MATNUM is STORing a NUM, it is a new node it has created
         if fst.is_matnum_itr() and fst.op == 'STOR' and fst.put.has_num_tag():
@@ -311,36 +322,40 @@ def parse_log_file(file_content: str) -> (list[MemOp], list[Redex],
         # "meat" of an interaction.
         itr_bldr.add(fst)
 
-    return (memops, redex_bldr.redexes, refs, itr_bldr.itrs)
+    return (itr_bldr.itrs, refs, redex_bldr.redexes)
 
-def parse_log_from_file(filename: str):
+def parse_file(filename: str) -> list[MemOpBase]:
     try:
         with open(filename, 'r') as f:
-            return parse_log_file(f.read())
+            return parse_memops(f.read())
     except FileNotFoundError:
         print(f"Error: File '{filename}' not found.")
     except Exception as e:
         print(f"Error parsing file: {e}")
         traceback.print_exc()
 
-    return ([], [], [], [])
+    return []
 
 def sum_nodes(refs: list[ExpandRef]) -> int:
     return sum(len(a.nodes) for a in refs)
+
+
+def main(filename: str):
+    memops = parse_file(filename)
+    if not memops:
+        print(f"No memory operations loaded")
+        sys.exit(1)
+
+    (itrs, refs, redexes) = make_all(memops)
+
+    print(f"memops {len(memops)} itrs {len(itrs)} refs {len(refs)} nodes {sum_nodes(refs)} redexes {len(redexes)}")
+    if log: print(f"{[ref.def_idx for ref in refs]}")
+    if log: print(f"ref.def_idx < 7 or >= 1024: {sum(1 for ref in refs if ref.def_idx < 7 or ref.def_idx >= DefIdx.MAT)}")
+    event_loop(itrs)
 
 if __name__ == "__main__":
     if len(sys.argv) < 2:
         print(f"usage: parse <filename>")
         sys.exit(1)
 
-    the_filename = sys.argv[1]
-    (all_memops, redexes, all_refs, all_itrs) = parse_log_from_file(the_filename)
-    if not all_memops:
-        print(f"No memory operations loaded")
-        sys.exit(1)
-
-    print(f"memops {len(all_memops)} itrs {len(all_itrs)} refs {len(all_refs)} nodes {sum_nodes(all_refs)} redexes {len(redexes)}")
-    print(f"{[ref.def_idx for ref in all_refs]}")
-    print(f"ref.def_idx < 7 or >= 1024: {sum(1 for ref in all_refs if ref.def_idx < 7 or ref.def_idx >= DefIdx.MAT)}")
-    #event_loop([ref for ref in refs if ref.def_idx < 7 or ref.def_idx >= DefIdx.MAT])
-    event_loop(all_itrs)
+    main(sys.argv[1])

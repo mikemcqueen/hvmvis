@@ -5,7 +5,7 @@ import pygame
 
 from commonui import Position
 from fonts import fonts
-from hvm import ExpandRef, DefIdx, NodeTerm
+from hvm import *
 from text_cache import TextCache
 
 TITLE_FONT_SIZE = 14
@@ -75,36 +75,84 @@ class RefRect:
         color = md['done_color'] if node_term.memops_done() else md['text_color']
         x_off = 0
         for i, value in enumerate(values):
-            rendered_text = md['text_cache'].get_rendered_text(value)
-            if self.selected or (self.color_scheme == "bright terminal"):
-                if not rendered_text.bright.surface or rendered_text.bright.color != color:
-                    rendered_text.bright.surface = md['font'].render(value, True, color)
-                    rendered_text.bright.color = color
-                value_surface = rendered_text.bright.surface
+            rndr_txt = md['text_cache'].get_rendered_text(value)
+            if self.selected or (self.color_scheme == "brt terminal"):
+                if not rndr_txt.brt.surface or rndr_txt.brt.color != color:
+                    rndr_txt.brt.surface = md['font'].render(value, True, color)
+                    rndr_txt.brt.color = color
+                val_surf = rndr_txt.brt.surface
             else:
-                if not rendered_text.dim.surface or rendered_text.dim.color != color:
-                    rendered_text.dim.surface = md['font'].render(value, True, color)
-                    rendered_text.dim.color = color
-                value_surface = rendered_text.dim.surface
+                if not rndr_txt.dim.surface or rndr_txt.dim.color != color:
+                    rndr_txt.dim.surface = md['font'].render(value, True, color)
+                    rndr_txt.dim.color = color
+                val_surf = rndr_txt.dim.surface
                     
-            surface.blit(value_surface, (pos.x + x_off, pos.y))
+            surface.blit(val_surf, (pos.x + x_off, pos.y))
             if node_term.empty: # draw memory loc only for empty terms
                 break
             x_off += table['column_widths'][i]
             if i < len(values) - 1:
                 x_off += table['col_spacing_by_index'][i + 1]
 
-    def draw_metadata(self, node_term: NodeTerm, surface: pygame.Surface, y: int, md: dict):
-        if not md['show_md']: return
-
+    def draw_counts(self, node_term: NodeTerm, surface: pygame.Surface, y: int, md: dict):
         stor_idx = node_term.memop_idx
         stor_max = len(node_term.memops) - 1
         value = f"{stor_idx}/{stor_max}"
         color = md['done_color'] if node_term.memops_done() else md['text_color']
-        value_surf = md['font'].render(value, True, color)
+        val_surf = md['font'].render(value, True, color)
         table = md['table']
         x = self.x - (table['metrics']['char_width'] * 3 + table['metrics']['half_char'])
-        surface.blit(value_surf, (x, y))
+        surface.blit(val_surf, (x, y))
+
+    # TODO probably move to hvm.py
+    def get_redex(self, node_term: NodeTerm) -> Redex:
+        ref = node_term.node.ref
+        for redex in ref.redexes:
+            for term in (redex.neg, redex.pos):
+                if term.has_loc() and term.loc == node_term.mem_loc:
+                    return term.tag
+        return None
+
+    # TODO probably move to hvm.py
+    def get_kind(self, node_term: NodeTerm) -> str:
+        #node = node_term.node
+        itr = node_term.node.ref
+        if itr.name() == AppRef.NAME:
+            if node_term.mem_loc == itr.first_loc:
+                return 'var'
+            elif node_term.mem_loc == itr.first_loc + 1:
+                return 'bod'
+        #elif itr.name() == AppLam.NAME:
+
+        """
+        Term arg = take(port(1, a_loc));
+        Loc ret = port(2, a_loc);
+
+        Loc var = port(1, b_loc);
+        Term bod = take(port(2, b_loc));
+
+        move(tm, var, arg);
+        move(tm, ret, bod);
+
+        """
+        redex = self.get_redex(node_term)
+        if not redex: return None
+        
+        return None
+
+    def draw_kind(self, node_term: NodeTerm, surface: pygame.Surface, y: int, md: dict):
+        kind = self.get_kind(node_term)
+        if not kind: return
+        color = md['done_color'] if node_term.memops_done() else md['text_color']
+        kind_surf = md['font'].render(kind, True, color)
+        table = md['table']
+        x = self.x + table['width'] + table['metrics']['char_width']
+        surface.blit(kind_surf, (x, y))
+
+    def draw_metadata(self, node_term: NodeTerm, surface: pygame.Surface, y: int, md: dict):
+        if not md['show_md']: return
+        self.draw_counts(node_term, surface, y, md)
+        #self.draw_kind(node_term, surface, y, md)
 
     def draw(self, surface: pygame.Surface, md: dict):
         if not self.visible: return
@@ -339,7 +387,7 @@ class RefManager:
                 #print(f"redex.neg MAT loc {neg.term} loc {loc}")
             else:
                 # fall back to the loc of the origin ref
-                loc = neg.node.ref.first_loc()
+                loc = neg.node.ref.first_loc
                 #print(f"fall back redex.neg.node.ref {neg.node.ref.def_idx} first_loc {loc}")
 
             rect = self.rect_from_loc(loc)

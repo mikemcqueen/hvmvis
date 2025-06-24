@@ -4,7 +4,7 @@ from typing import List, Tuple, Optional, NamedTuple
 
 import pygame
 
-from commonui import Position
+from commonui import Color, Position
 from hvm import MemOp, Term, Interaction
 from refui import * #RefManager, RefRect
 from fonts import fonts
@@ -23,8 +23,6 @@ durations: dict[str, float] = {
 }
 
 TOP = 30.0
-
-Color = Tuple[int, int, int]
 
 class Phase(NamedTuple):
     name: str
@@ -97,8 +95,8 @@ class AnimState:
     end_pos: Optional[Position] = None
     alpha: float = 255
     color: Optional[Color] = None
-    subs: list['AnimState'] = field(default_factory=list)
-    in_flight: bool = False
+    #subs: list['AnimState'] = field(default_factory=list)
+    #in_flight: bool = False
 
     def phase_name(self):
         return self.phases[self.phase].name
@@ -141,6 +139,7 @@ class AnimState:
             assert False
         return Position(self.beg_pos.x + dist, self.beg_pos.y)
 
+    """
     def subscribe(self, anim: 'AnimState'):
         assert self != anim
         if not self.in_flight:
@@ -173,6 +172,7 @@ class AnimState:
             print(f"  adding {len(other)} subs to {anim.term}:{anim.itr.idx}")
             anim.subs.extend(other)
         return anim
+    """
 
 def ease_in_out_cubic(t: float) -> float:
     if t < 0.5:
@@ -195,7 +195,7 @@ class AnimManager:
         self.text_cache = text_cache
         self.anims: List[AnimState] = []
         self.ready: bool = True
-        self.loc_map: dict[int, AnimState] = {}
+        #self.loc_map: dict[int, AnimState] = {}
 
     def add(self, anim: AnimState):
         if not anim.cur_pos:
@@ -207,7 +207,7 @@ class AnimManager:
         if phase.name == 'wait':
             return False
 
-        anim.in_flight = True
+        #anim.in_flight = True
 
         elapsed = current_time - anim.start_time
 
@@ -335,28 +335,27 @@ class AnimManager:
             f"{term.lab:03d}",
             f"{term.loc:03d}"
         )
+        pos = anim.cur_pos
         for i, (value, col_x) in enumerate(zip(term_data, col_positions)):
             # Use cache for standard colors, render directly for interpolated colors
             if anim.color in (DIM_GREEN, BRIGHT_GREEN, ORANGE, BRIGHT_ORANGE):
-                rendered_text = self.text_cache.get_rendered_text(value)
-                
+                rndr_txt = self.text_cache.get_rendered_text(value)
+
                 if anim.color in (BRIGHT_GREEN, BRIGHT_ORANGE):
-                    if not rendered_text.bright.surface or rendered_text.bright.color != anim.color:
-                        rendered_text.bright.surface = font.render(value, True, anim.color)
-                        rendered_text.bright.color = anim.color
-                    text_surface = rendered_text.bright.surface
+                    if not rndr_txt.brt.surface or rndr_txt.brt.color != anim.color:
+                        rndr_txt.brt.surface = font.render(value, True, anim.color)
+                        rndr_txt.brt.color = anim.color
+                    txt_surf = rndr_txt.brt.surface
                 else:
-                    if not rendered_text.dim.surface or rendered_text.dim.color != anim.color:
-                        rendered_text.dim.surface = font.render(value, True, anim.color)
-                        rendered_text.dim.color = anim.color
-                    text_surface = rendered_text.dim.surface
+                    if not rndr_txt.dim.surface or rndr_txt.dim.color != anim.color:
+                        rndr_txt.dim.surface = font.render(value, True, anim.color)
+                        rndr_txt.dim.color = anim.color
+                    txt_surf = rndr_txt.dim.surface
             else:
                 # Interpolated color - render directly
-                text_surface = font.render(value, True, anim.color)
+                txt_surf = font.render(value, True, anim.color)
             
-            draw_x = anim.cur_pos.x + col_x
-            draw_y = anim.cur_pos.y
-            surface.blit(text_surface, (draw_x, draw_y))
+            surface.blit(txt_surf, (pos.x + col_x, pos.y))
 
     def slide_out(self, term: Term, rect: RefRect, memop: MemOp) -> AnimState:
         node_term = memop.node.get(memop.loc)
@@ -373,13 +372,13 @@ class AnimManager:
         last_phase = 'fade_out' if term.tag == 'SUB' else 'wait'
         phases = ['fade_in', 'slide_out', last_phase]
         anim = AnimState(
-            term=term,
-            itr=memop.itr,
-            start_time=time.monotonic(),
-            phases=Phase.make_list(*phases),
-            from_rect=rect,
-            beg_pos=Position(x, y),
-            color=DIM_GREEN
+            term = term,
+            itr = memop.itr,
+            start_time = time.monotonic(),
+            phases = Phase.make_list(*phases),
+            from_rect = rect,
+            beg_pos = Position(x, y),
+            color = DIM_GREEN
         )
         """
         if loc in self.loc_map:
@@ -404,18 +403,18 @@ class AnimManager:
                 found = anim
         return found
 
-    # a term either was emergent in code, or was taken from a non-visible ref,
-    # so we must make it "appear out of nowhere"
+    # a term was either emergent in code, was taken from a non-visible ref,
+    # or was taken from the current redex. make it "appear out of nowhere"
     def manifest(self, term: Term, itr: Interaction) -> AnimState:
         x = (self.screen.get_width() - self.table['term_width']) / 2
         y = TOP
         anim = AnimState(
-            term=term,
-            itr=itr,
-            start_time=time.monotonic(),
-            phases=Phase.make_list('fade_in'),
-            beg_pos=Position(x, y),
-            color=DIM_GREEN # TODO, if not rect.selected else BRIGHT_GREEN
+            term = term,
+            itr = itr,
+            start_time = time.monotonic(),
+            phases = Phase.make_list('fade_in'),
+            beg_pos = Position(x, y),
+            color = DIM_GREEN # TODO, if not rect.selected else BRIGHT_GREEN
         )
         self.add(anim)
         return anim
@@ -430,11 +429,13 @@ class AnimManager:
 
         slide_x = final_x + slide_right_distance(self.table)
         # there might be some epsilon here to consider
+        y_change = False
         if anim.beg_pos.x != slide_x:
             if anim.beg_pos.y != TOP:
                 Phase.append(anim.phases, 'slide_to_top')
+                y_change = True
             Phase.append(anim.phases, 'slide_over')
-        if anim.beg_pos.y != final_y:
+        if y_change or anim.beg_pos.y != final_y:
             Phase.append(anim.phases, 'slide_to_loc')
         Phase.append(anim.phases, 'slide_in', 'fade_out')
         anim.to_rect = rect

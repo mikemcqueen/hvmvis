@@ -29,19 +29,22 @@ EMPTY_TERM = Term(EMPTY_TAG, 0, 0)
 TAKEN_TERM = Term(TAKEN_TAG, 0, 0)
 
 @dataclass(eq=False)
-class MemOp:
+class MemOpBase:
     seq: int
     tid: int
     itr_name: str
     op: str
+    loc: int
+
+@dataclass(eq=False)
+class MemOp(MemOpBase):
     lvl: int
     put: Optional[Term]
     got: Optional[Term]
-    loc: int
+    # a MemOp originates in an interaction.
+    itr: Optional['Interaction'] = None
     # a MemOp operates on a memory location within a Node
     node: Optional['Node'] = None
-    # a MemOp originates from an interaction.
-    itr: Optional['Interaction'] = None
 
     def __repr__(self) -> str:
         if self.op == 'EXCH':
@@ -78,21 +81,40 @@ class MemOp:
         return self.itr_name[:3] == 'MAT' and self.itr_name[3:] in NUM_TAGS
 
 @dataclass(eq=False)
-class NodeTerm:
-    class Kind(IntEnum):
-        Var = 1
-        Bod = 2
-        Arg = 3
-        Ret = 4
-        Arm = 5
+class Redex(MemOpBase):
+    neg: Term
+    pos: Term
+    itr: Optional['Interaction'] = None  # the interaction this redex was pushed from
 
+    def __repr__(self) -> str:
+        return f"{self.neg} {self.pos} itr.idx({self.itr.idx})"
+
+    @classmethod
+    def new(cls, neg: MemOp, pos: MemOp):
+        assert neg.itr_name == pos.itr_name
+        assert (neg.op, pos.op) == ('STOR', 'STOR')
+        assert neg.put and pos.put
+        assert pos.loc == neg.loc + 1
+        return cls(
+            # MemOpBase
+            seq = neg.seq,
+            tid = neg.tid,
+            itr_name = neg.itr_name,
+            op = 'PUSH',
+            loc = neg.loc,
+            # Redex
+            neg = neg.put,
+            pos = pos.put
+        )
+
+@dataclass(eq=False)
+class NodeTerm:
     term: Term
     node: Optional['Node | NodeProxy'] = None
-    #kind: Optional[Kind] = None
     memops: list[MemOp] = field(default_factory=list)
     memop_idx: int = 0
     # hack (i think) for determining ref dependencies. feels wrong. re-visit.
-    loads: list[MemOp] = field(default_factory=list)
+    #loads: list[MemOp] = field(default_factory=list)
     empty: bool = False
 
     @property
@@ -124,15 +146,6 @@ class NodeTerm:
         return self.memop_idx == len(self.memops) - 1
 
 @dataclass(eq=False)
-class Redex:
-    neg: Term
-    pos: Term
-    push_itr: 'Interaction'
-
-    def __repr__(self) -> str:
-        return f"{self.neg} {self.pos} push_itr.idx({self.push_itr.idx})"
-
-@dataclass(eq=False)
 class NodeProxy:
     ref: 'ExpandRef'
 
@@ -162,7 +175,6 @@ class Node:
     def swap(self, loc: int):
         self.set(loc, EMPTY_TERM)
 
-
 class DefIdx(IntEnum):
     MAT = 1024
 
@@ -176,13 +188,14 @@ class HasNodes(ABC):
         pass
 
     def contains(self, loc: int):
-        return self.first_loc() <= loc <= self.last_loc()
+        return self.first_loc <= loc <= self.last_loc
 
 @dataclass(eq=False, kw_only=True)
 class Interaction(ABC):
     idx: int
     redex: Optional[Redex] = None
     memops: list[MemOp] = field(default_factory=list)
+    redexes: list[Redex] = field(default_factory=list)
 
     @abstractmethod
     def name(self) -> str:
@@ -194,19 +207,14 @@ class ExpandRef(Interaction, HasNodes):
     nodes: list[Node] = field(default_factory=list)
 
     @property
-    def id(self): return (self.def_idx, self.first_loc())
+    def id(self): return (self.def_idx, self.first_loc)
+    @property
+    def first_loc(self) -> int: return self.nodes[0].neg.mem_loc
+    @property
+    def last_loc(self) -> int: return self.nodes[-1].pos.mem_loc
 
     def __repr__(self) -> str:
         return f"def_idx: {self.def_idx} {self.redex}"
-
-    def name(self) -> str:
-        pass
-
-    def first_loc(self) -> int:
-        return self.nodes[0].neg.mem_loc
-
-    def last_loc(self) -> int:
-        return self.nodes[-1].pos.mem_loc
 
     def memops_done(self) -> bool:
         for node in self.nodes:
@@ -214,6 +222,9 @@ class ExpandRef(Interaction, HasNodes):
                 if not node_term.memops_done():
                     return False
         return True
+
+    def name(self) -> str:
+        pass
 
 @dataclass(eq=False)
 class AppRef(ExpandRef):
