@@ -116,20 +116,8 @@ class RedexBuilder:
     """
 
     def push(self, redex: Redex, itr: Interaction):
-        assert itr
-        redex.psh_itr = itr
-        # Redexes are constructed by the parser from MemOps, which only contain
-        # the `term` field of a NodeTerm. Here we know the interaction this
-        # redex originated from, which allows us to fixup the `node` field.
-        if isinstance(itr, ExpandRef) and itr.nodes:
-            for nod_trm in (redex.neg, redex.pos):
-                if not nod_trm.term.has_loc(): continue
-                node = itr.get_node(nod_trm.loc)
-                if node:
-                    nod_trm.node = node
-
+        redex._init_itr(redex, itr)
         # TODO: terms emergent in code, terms from non-visible refs
-
         itr.redexes.append(redex)
 
         # only used to count redexes, could just be an int

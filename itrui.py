@@ -66,8 +66,8 @@ class ItrManager:
         header_color = ORANGE
 
         if itr.redex:
-            text = f"{itr.name()}  {itr.redex.neg}"
-            text2 = f"        {itr.redex.pos}"
+            text = f"{itr.name()}  {itr.redex.neg.term}"
+            text2 = f"        {itr.redex.pos.term}"
         else:
             text = f"APPREF  Boot Redex"
             text2 = None

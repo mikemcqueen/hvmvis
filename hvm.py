@@ -100,6 +100,18 @@ class NodeTerm:
     def copy(self) -> 'NodeTerm':
         return NodeTerm(self.term, self.node)
 
+class HasNodes(ABC):
+    @abstractmethod
+    def first_loc(self) -> int:
+        pass
+
+    @abstractmethod
+    def last_loc(self) -> int:
+        pass
+
+    def contains(self, loc: int):
+        return self.first_loc <= loc <= self.last_loc
+
 @dataclass(eq=False)
 class Redex(MemOpBase):
     neg: NodeTerm
@@ -110,10 +122,26 @@ class Redex(MemOpBase):
     def __repr__(self) -> str:
         return f"Redex {self.neg} {self.pos} psh_itr.idx({self.psh_itr.idx})"
 
+    # Redexes are constructed by the parser from MemOps, which only contain
+    # the `term` field of a NodeTerm. Once the interaction that this redex
+    # originated from is known, the `node` field can potentially be set.
+    def _init_itr(self, redex: 'Redex', itr: 'Interaction'):
+        assert not self.psh_itr
+        self.psh_itr = itr
+        #self._init_nodes(itr)
+        if isinstance(itr, HasNodes) and itr.nodes:
+            for nod_trm in (redex.neg, redex.pos):
+                if not nod_trm.term.has_loc(): continue
+                node = itr.get_node(nod_trm.loc)
+                if node:
+                    nod_trm.node = node
+                    node._init_redex(self)
+
     def get_node_term(self, term: Term) -> NodeTerm:
         if term == self.neg: return self.neg
         if term == self.pos: return self.pos
         return None
+
 
     @classmethod
     def new(cls, neg: MemOp, pos: MemOp):
@@ -189,6 +217,11 @@ class Node:
     #parent: Optional[Node]
     #child: Optional[Node]
 
+    # called by parser (via Redex._init_itr) after node is constructed
+    def _init_redex(self, redex: Redex):
+        assert not self.redex
+        self.redex = redex
+
     def contains(self, loc: int):
         neg_loc = self.neg.mem_loc
         return loc in (neg_loc, neg_loc + 1)
@@ -211,20 +244,12 @@ class Node:
     def swap(self, loc: int):
         self.set(loc, EMPTY_TERM)
 
+    def get_context(self, nod_trm: NodeTerm) -> str:
+        return (self.redex.psh_itr.get_context(nod_trm) 
+                if self.redex and self.redex.psh_itr else '')
+
 class DefIdx(IntEnum):
     MAT = 1024
-
-class HasNodes(ABC):
-    @abstractmethod
-    def first_loc(self) -> int:
-        pass
-
-    @abstractmethod
-    def last_loc(self) -> int:
-        pass
-
-    def contains(self, loc: int):
-        return self.first_loc <= loc <= self.last_loc
 
 @dataclass(eq=False, kw_only=True)
 class Interaction(ABC):
@@ -283,6 +308,9 @@ class AppRef(ExpandRef):
     def name(self) -> str:
         return AppRef.NAME
 
+    def get_context(self, nod_trm: NodeTerm) -> str:
+        return 'APP'
+
 @dataclass(eq=False)
 class AppLam(Interaction):
     NAME = 'APPLAM'
@@ -327,6 +355,9 @@ class MatNum(ExpandRef):
 
     def name(self) -> str:
         return MatNum.NAME
+
+    def get_context(self, nod_trm: NodeTerm) -> str:
+        return 'MAT'
 
 @dataclass(eq=False)
 class MatRef(Interaction):
