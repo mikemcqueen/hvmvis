@@ -173,7 +173,8 @@ class RefBuilder:
             # the REF part is probably bench_parallel_sum specific. maybe should
             # use mem_loc == 2 instead
             assert fst.is_root_itr() and snd.is_root_itr() and fst.put.tag == 'REF'
-            self.ref = AppRef(fst.put.loc, None, len(self.itrs))
+            # 2=main, bench_parallel_sum specific
+            self.ref = AppRef(2, None, len(self.itrs))
             self.refs.append(self.ref)
             self.itrs.append(self.ref)
 
@@ -183,8 +184,7 @@ class RefBuilder:
         node = Node(neg, pos, self.ref)
         neg.node = node
         pos.node = node
-
-        self.ref.nodes.append(node)
+        self.ref.add_node(node)
         if log: print(f"added node: {len(self.ref.nodes)}")
 
         """

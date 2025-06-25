@@ -215,8 +215,11 @@ class Node:
     neg: InPlaceNodeTerm
     pos: InPlaceNodeTerm
     ref: 'ExpandRef'
-    # the redex (if any) that was pushed from within this node's ref, which
-    # contains a term with the loc of this node. it helps us determine a
+
+    # index of this node within ref
+    idx: Optional[int] = None
+    # the redex (if any) that was pushed from within this node's definition,
+    # which contains a term with the loc of this node. it helps us determine a
     # "context" for this node.
     redex: Optional[Redex] = None
 
@@ -261,7 +264,9 @@ class Node:
     def get_context(self, nod_trm: NodeTerm) -> str:
         if self.redex:
             cls = Interaction.get_class(self.redex.redex_itr_name())
-            return cls.get_context(nod_trm)
+            return cls.get_redex_context(nod_trm)
+        else:
+            return self.ref.get_context(nod_trm)
         return ''
 
 class DefIdx(IntEnum):
@@ -311,10 +316,14 @@ class ExpandRef(Interaction, HasNodes):
         neg_loc = self.neg.mem_loc
         assert loc in (neg_loc, neg_loc + 1), f"loc {loc} neg_loc {neg_loc}"
 
+    def add_node(self, node: Node):
+        node.idx = len(self.nodes)
+        self.nodes.append(node)
+
     def get_node(self, loc: int) -> Node:
         for node in self.nodes:
             if node.contains(loc):
-                return node # .get(loc)
+                return node
         return None
 
     def memops_done(self) -> bool:
@@ -330,15 +339,32 @@ class ExpandRef(Interaction, HasNodes):
 @dataclass(eq=False)
 class AppRef(ExpandRef):
     NAME = 'APPREF'
+    mat: bool = False
+
     def __init__(self, def_idx: int, redex: Optional[Redex], idx: int):
         super().__init__(redex=redex, def_idx=def_idx, idx=idx)
 
     def name(self) -> str:
         return AppRef.NAME
 
-    @classmethod
+    def add_node(self, node: Node):
+        super().add_node(node)
+        if len(self.nodes) == 1 and self.nodes[0].neg.tag == 'MAT':
+            self.mat = True
+
     def get_context(self, nod_trm: NodeTerm) -> str:
-        if nod_trm.is_neg == True:
+        if nod_trm.term.taken(): return ''
+        if self.mat:
+            match nod_trm.node.idx:
+                case 0: return 'mat'
+                case 1: return 'ret' if nod_trm.is_neg else ''
+                case _: return 'arm' if nod_trm.is_neg else ''
+
+    @classmethod
+    def get_redex_context(self, nod_trm: NodeTerm) -> str:
+        if nod_trm.term.taken():
+            return ''
+        elif nod_trm.is_neg == True: 
             return 'arg'
         elif nod_trm.is_neg == False:
             return 'ret'
@@ -355,26 +381,15 @@ class AppLam(Interaction):
         return AppLam.NAME
 
     @classmethod
-    def get_context(self, nod_trm: NodeTerm) -> str:
-        if nod_trm.is_neg == True:
+    def get_redex_context(self, nod_trm: NodeTerm) -> str:
+        if nod_trm.term.taken():
+            return ''
+        elif nod_trm.is_neg == True:
             return 'var'
         elif nod_trm.is_neg == False:
             return 'bod'
         else:
             assert False
-
-@dataclass(eq=False)
-class DupU32(Interaction):
-    NAME = 'DUPU32'
-    def __init__(self, redex: Redex, idx: int):
-        super().__init__(redex=redex, idx=idx)
-
-    def name(self) -> str:
-        return DupU32.NAME
-
-    @classmethod
-    def get_context(self, nod_trm: NodeTerm) -> str:
-        return 'dup'
 
 @dataclass(eq=False)
 class OpxU32(Interaction):
@@ -386,33 +401,8 @@ class OpxU32(Interaction):
         return OpxU32.NAME
 
     @classmethod
-    def get_context(self, nod_trm: NodeTerm) -> str:
+    def get_redex_context(self, nod_trm: NodeTerm) -> str:
         return 'opx'
-
-@dataclass(eq=False)
-class OpyU32(Interaction):
-    NAME = 'OPYU32'
-    def __init__(self, redex: Redex, idx: int):
-        super().__init__(redex=redex, idx=idx)
-
-    def name(self) -> str:
-        return OpyU32.NAME
-
-    @classmethod
-    def get_context(self, nod_trm: NodeTerm) -> str:
-        return 'opy'
-
-@dataclass(eq=False)
-class MatU32(ExpandRef):
-    NAME = 'MATU32'
-    def __init__(self, redex: Redex, idx: int):
-        super().__init__(redex=redex, def_idx=DefIdx.MAT, idx=idx)
-
-    def name(self) -> str:
-        return MatU32.NAME
-
-    def get_context(self, nod_trm: NodeTerm) -> str:
-        return 'mat'
 
 @dataclass(eq=False)
 class MatRef(Interaction):
@@ -423,6 +413,29 @@ class MatRef(Interaction):
     def name(self):
         return MatRef.NAME
 
-    @classmethod
-    def get_context(self, nod_trm: NodeTerm) -> str:
-        return 'matref'
+@dataclass(eq=False)
+class DupU32(Interaction):
+    NAME = 'DUPU32'
+    def __init__(self, redex: Redex, idx: int):
+        super().__init__(redex=redex, idx=idx)
+
+    def name(self) -> str:
+        return DupU32.NAME
+
+@dataclass(eq=False)
+class OpyU32(Interaction):
+    NAME = 'OPYU32'
+    def __init__(self, redex: Redex, idx: int):
+        super().__init__(redex=redex, idx=idx)
+
+    def name(self) -> str:
+        return OpyU32.NAME
+
+@dataclass(eq=False)
+class MatU32(ExpandRef):
+    NAME = 'MATU32'
+    def __init__(self, redex: Redex, idx: int):
+        super().__init__(redex=redex, def_idx=DefIdx.MAT, idx=idx)
+
+    def name(self) -> str:
+        return MatU32.NAME
