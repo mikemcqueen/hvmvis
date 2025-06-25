@@ -1,7 +1,7 @@
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from enum import IntEnum
-from typing import NamedTuple, Optional
+from typing import ClassVar, NamedTuple, Optional
 
 HAS_LOC_TAGS = {'VAR', 'LAM', 'APP', 'SUP', 'DUP', 'OPX', 'OPY', 'MAT'}
 NUM_TAGS = {'U32', 'I32', 'F32'}
@@ -85,6 +85,7 @@ class MemOp(MemOpBase):
 class NodeTerm:
     term: Term
     node: Optional['Node | NodeProxy'] = None
+    is_neg: Optional[bool] = None
 
     @property
     def tag(self): return self.term.tag
@@ -97,8 +98,11 @@ class NodeTerm:
         def_idx = self.node.ref.def_idx if self.node else '??'
         return f"NodeTerm {self.term} {type(self.node).__name__}({def_idx})"
 
+    def _set_neg(self, is_neg: bool):
+        self.is_neg = is_neg
+
     def copy(self) -> 'NodeTerm':
-        return NodeTerm(self.term, self.node)
+        return NodeTerm(self.term, self.node, self.is_neg)
 
 class HasNodes(ABC):
     @abstractmethod
@@ -129,19 +133,22 @@ class Redex(MemOpBase):
         assert not self.psh_itr
         self.psh_itr = itr
         #self._init_nodes(itr)
-        if isinstance(itr, HasNodes) and itr.nodes:
-            for nod_trm in (redex.neg, redex.pos):
-                if not nod_trm.term.has_loc(): continue
-                node = itr.get_node(nod_trm.loc)
-                if node:
-                    nod_trm.node = node
-                    node._init_redex(self)
+        if not isinstance(itr, HasNodes) or not itr.nodes: return
+        for nod_trm in (redex.neg, redex.pos):
+            if not nod_trm.term.has_loc(): continue
+            node = itr.get_node(nod_trm.loc)
+            if node:
+                nod_trm.node = node
+                node._init_redex(self)
+
+    # explicit name due to clash with MemOp.itr_name field
+    def redex_itr_name(self) -> str:
+        return f"{self.neg.tag}{self.pos.tag}"
 
     def get_node_term(self, term: Term) -> NodeTerm:
         if term == self.neg: return self.neg
         if term == self.pos: return self.pos
         return None
-
 
     @classmethod
     def new(cls, neg: MemOp, pos: MemOp):
@@ -217,6 +224,13 @@ class Node:
     #parent: Optional[Node]
     #child: Optional[Node]
 
+    def __post_init__(self):
+        self.neg._set_neg(True)
+        self.pos._set_neg(False)
+
+    def __repr__(self) -> str:
+        return f"Node {self.neg} {self.pos} ref.idx({self.ref.idx})"
+
     # called by parser (via Redex._init_itr) after node is constructed
     def _init_redex(self, redex: Redex):
         assert not self.redex
@@ -231,12 +245,12 @@ class Node:
         return self.neg if loc == self.neg.mem_loc else self.pos
 
     # funky.
-    def set(self, loc: int, term: Term | NodeTerm):
+    def set(self, loc: int, term_nod_trm: Term | NodeTerm):
         nod_trm = self.get(loc)
-        if isinstance(term, Term):
-            nod_trm.set(term)
+        if isinstance(term_nod_trm, Term):
+            nod_trm.set(term_nod_trm)
         else:
-            nod_trm.set_origin(term)
+            nod_trm.set_origin(term_nod_trm)
 
     def take(self, loc: int):
         self.set(loc, TAKEN_TERM)
@@ -245,8 +259,10 @@ class Node:
         self.set(loc, EMPTY_TERM)
 
     def get_context(self, nod_trm: NodeTerm) -> str:
-        return (self.redex.psh_itr.get_context(nod_trm) 
-                if self.redex and self.redex.psh_itr else '')
+        if self.redex:
+            cls = Interaction.get_class(self.redex.redex_itr_name())
+            return cls.get_context(nod_trm)
+        return ''
 
 class DefIdx(IntEnum):
     MAT = 1024
@@ -260,9 +276,21 @@ class Interaction(ABC):
     redexes: list[Redex] = field(default_factory=list)
     memops: list[MemOp] = field(default_factory=list)
 
+    registry: ClassVar[dict[str, type]] = {}
+
+    def __init_subclass__(cls, **kwargs):
+        super().__init_subclass__(**kwargs)
+        name = getattr(cls, 'NAME', None)
+        if name:
+            Interaction.registry[name] = cls
+
     @abstractmethod
     def name(self) -> str:
         pass
+
+    @classmethod
+    def get_class(cls, name: str) -> type:
+        return Interaction.registry[name]
 
 @dataclass(eq=False, kw_only=True)
 class ExpandRef(Interaction, HasNodes):
@@ -308,8 +336,14 @@ class AppRef(ExpandRef):
     def name(self) -> str:
         return AppRef.NAME
 
+    @classmethod
     def get_context(self, nod_trm: NodeTerm) -> str:
-        return 'APP'
+        if nod_trm.is_neg == True:
+            return 'arg'
+        elif nod_trm.is_neg == False:
+            return 'ret'
+        else:
+            assert False
 
 @dataclass(eq=False)
 class AppLam(Interaction):
@@ -320,44 +354,65 @@ class AppLam(Interaction):
     def name(self) -> str:
         return AppLam.NAME
 
+    @classmethod
+    def get_context(self, nod_trm: NodeTerm) -> str:
+        if nod_trm.is_neg == True:
+            return 'var'
+        elif nod_trm.is_neg == False:
+            return 'bod'
+        else:
+            assert False
+
 @dataclass(eq=False)
-class DupNum(Interaction):
+class DupU32(Interaction):
     NAME = 'DUPU32'
     def __init__(self, redex: Redex, idx: int):
         super().__init__(redex=redex, idx=idx)
 
     def name(self) -> str:
-        return DupNum.NAME
+        return DupU32.NAME
+
+    @classmethod
+    def get_context(self, nod_trm: NodeTerm) -> str:
+        return 'dup'
 
 @dataclass(eq=False)
-class OpxNum(Interaction):
+class OpxU32(Interaction):
     NAME = 'OPXU32'
     def __init__(self, redex: Redex, idx: int):
         super().__init__(redex=redex, idx=idx)
 
     def name(self) -> str:
-        return OpxNum.NAME
+        return OpxU32.NAME
+
+    @classmethod
+    def get_context(self, nod_trm: NodeTerm) -> str:
+        return 'opx'
 
 @dataclass(eq=False)
-class OpyNum(Interaction):
+class OpyU32(Interaction):
     NAME = 'OPYU32'
     def __init__(self, redex: Redex, idx: int):
         super().__init__(redex=redex, idx=idx)
 
     def name(self) -> str:
-        return OpyNum.NAME
+        return OpyU32.NAME
+
+    @classmethod
+    def get_context(self, nod_trm: NodeTerm) -> str:
+        return 'opy'
 
 @dataclass(eq=False)
-class MatNum(ExpandRef):
+class MatU32(ExpandRef):
     NAME = 'MATU32'
     def __init__(self, redex: Redex, idx: int):
         super().__init__(redex=redex, def_idx=DefIdx.MAT, idx=idx)
 
     def name(self) -> str:
-        return MatNum.NAME
+        return MatU32.NAME
 
     def get_context(self, nod_trm: NodeTerm) -> str:
-        return 'MAT'
+        return 'mat'
 
 @dataclass(eq=False)
 class MatRef(Interaction):
@@ -367,3 +422,7 @@ class MatRef(Interaction):
 
     def name(self):
         return MatRef.NAME
+
+    @classmethod
+    def get_context(self, nod_trm: NodeTerm) -> str:
+        return 'matref'

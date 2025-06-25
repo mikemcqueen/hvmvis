@@ -205,14 +205,15 @@ class ItrBuilder:
     refs: list[ExpandRef]
     itr: Optional[Interaction] = None
 
+    # TODO: Interaction.new(itr_name, redex)
     def make_itr(self, itr_name: str, redex: Redex):
         match itr_name:
             case AppLam.NAME: return AppLam(redex, len(self.itrs))
             case MatRef.NAME: return MatRef(redex, len(self.itrs))
-            case MatNum.NAME: return MatNum(redex, len(self.itrs))
-            case OpxNum.NAME: return OpxNum(redex, len(self.itrs))
-            case OpyNum.NAME: return OpyNum(redex, len(self.itrs))
-            case DupNum.NAME: return DupNum(redex, len(self.itrs))
+            case MatU32.NAME: return MatU32(redex, len(self.itrs))
+            case OpxU32.NAME: return OpxU32(redex, len(self.itrs))
+            case OpyU32.NAME: return OpyU32(redex, len(self.itrs))
+            case DupU32.NAME: return DupU32(redex, len(self.itrs))
             case _: raise RuntimeError(f"{redex.itr_name}")
 
     def new(self, redex: Redex, itr_name: str):
