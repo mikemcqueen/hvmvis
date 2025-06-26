@@ -27,7 +27,7 @@ class ItrManager:
 
     def init_rect(self, screen: pygame.Surface) -> pygame.Rect:
         width = 240
-        height = 340
+        height = 320
         return pygame.Rect(
             screen.get_width() - width,
             screen.get_height() - height,

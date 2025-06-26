@@ -4,8 +4,9 @@ import pygame
 
 from commonui import *
 from fonts import fonts, get_font_metrics
+from freeui import FreeManager
 from hvm import Interaction
-from refui import *
+from refui import RefManager
 from itrui import ItrManager
 from anim import AnimManager
 from text_cache import TextCache
@@ -44,9 +45,20 @@ def get_table_metrics() -> dict:
         col_spacing['intra_term'] * (len(column_chars[1:]) - 1)
     )
     screen_width = 1850
-    screen_height = 860
-    free_section_width = 300
+    screen_height = 925
     itr_section_width = 240
+    itr_section_height = 320
+
+    free_section_top = 5
+    free_section_width = metrics['char_width'] * 7 * 9 # 7 chars * 9 columns + margin
+    free_section_height = screen_height - itr_section_height - free_section_top
+
+    free_layout = {
+        'rect': pygame.Rect(screen_width - free_section_width, free_section_top,
+                            free_section_width, free_section_height),
+        'col_width': metrics['char_width'] * 6, # '000:00'
+        'col_spacing': metrics['char_width']
+    }
 
     ref_left_margin = metrics['char_width'] * 4
     ref_horz_spacing = term_width + metrics['char_width'] * 2
@@ -86,7 +98,8 @@ def get_table_metrics() -> dict:
         'layout': layout,
         'ref_width': ref_width,
         'metrics': metrics,
-        'title_metrics': title_metrics
+        'title_metrics': title_metrics,
+        'free': free_layout,
     }
 
 def draw_instructions(screen: pygame.Surface, table: dict):
@@ -99,9 +112,10 @@ def draw_instructions(screen: pygame.Surface, table: dict):
         #,f"+/-:   Speed({table['speed']})"
     ]
     y = 0
+    color = WHITE
     line_height = table['metrics']['line_height'] + table['row_spacing']['intra_row']
     for i, instruction in enumerate(instructions):
-        text = fonts.content.render(instruction, True, WHITE)
+        text = fonts.content.render(instruction, True, color)
         screen.blit(text, (10, 10 + y))
         y += line_height
 
@@ -147,6 +161,7 @@ def event_loop(itrs: list[Interaction]):
 
     ref_mgr = RefManager(screen, table, text_cache)
     anim_mgr = AnimManager(screen, ref_mgr, table, text_cache)
+    free_mgr = FreeManager(screen, table)
     itr_mgr = ItrManager(screen, itrs, ref_mgr, anim_mgr, table, text_cache)
 
     if itrs:
@@ -170,9 +185,11 @@ def event_loop(itrs: list[Interaction]):
         ref_mgr.draw_all()
         anim_mgr.update_all(current_time)
         anim_mgr.draw_all()
+        free_mgr.draw()
         itr_mgr.draw()
 
         pygame.display.flip()
+
         clock.tick(30)
 
     pygame.quit()

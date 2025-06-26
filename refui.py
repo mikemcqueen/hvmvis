@@ -295,8 +295,11 @@ class RefManager:
         next_x = last_rect.x + last_rect.width + self.table['layout']['horz_spacing']
 
         # Check if new column fits horizontally
-        req_width = width + self.table['layout']['horz_spacing']
-        if next_x + req_width > self.table['layout']['section_width']:
+        next_wid = (
+            (width + self.table['layout']['horz_spacing']) - 
+            self.table['metrics']['char_width']
+        )
+        if next_x + next_wid > self.table['layout']['section_width']:
             # Doesn't fit horizontally; scroll
             ui.scroll_mgr.scroll(1, self.table)
 
