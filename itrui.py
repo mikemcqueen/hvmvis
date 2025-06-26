@@ -36,33 +36,9 @@ class ItrManager:
         )
 
     def draw_header(self, surface: pygame.Surface, itr: Interaction):
-        # Draw background
-        pygame.draw.rect(surface, BLACK, self.rect) # (self.x, self.y, self.width, self.height))
-
-        # Draw border
-        #border_rect = pygame.Rect(self.x, self.y, self.width, self.height)
-        #pygame.draw.rect(surface, border_color, border_rect, table['table_border_thickness'])
-
-        """
-        # Draw title with background to clip the border
-        title_surface = title_font.render(ref_name(self.ref.def_idx), True, header_color)
-        title_width = title_surface.get_width()
-        title_x = self.x + (self.width - title_width) // 2
-        title_y = self.y - title_font.get_height() // 2
-    
-        title_bg_rect = pygame.Rect(title_x - 5, title_y, title_width + 10, title_font.get_height())
-        pygame.draw.rect(surface, BLACK, title_bg_rect)
-        surface.blit(title_surface, (title_x, title_y))
-    
-        # Column headers
-        headers = ["MEM", "TAG", "LAB", "LOC"]
-        title_bottom = title_y + table['title_metrics']['line_height']
-        header_y = title_bottom + table['row_spacing']['title_to_header']
-        current_x = self.x + table['col_spacing']['margin']
-        """
+        #pygame.draw.rect(surface, BLACK, self.rect)
 
         title_font = fonts.title
-
         header_color = ORANGE
 
         if itr.redex:
@@ -81,16 +57,11 @@ class ItrManager:
             surf = title_font.render(text2, True, header_color)
             self.screen.blit(surf, (x, y))
 
-        # Draw horizontal line under headers
-        #line_y = header_y + table['metrics']['line_height'] + table['row_spacing']['header_to_line']
-        #line_left = self.x + table['col_spacing']['margin']
-        #line_right = self.x + self.width - table['col_spacing']['margin']
-        #pygame.draw.line(surface, line_color, (line_left, line_y), (line_right, line_y), 1)
-
     def draw_memops(self, surface: pygame.Surface, memops: list[MemOp]):
         font = fonts.content
         x = self.rect.x + 5
         y = self.rect.y + 5 + self.table['title_metrics']['line_height'] * 3
+        line_height = self.table['metrics']['line_height'] + self.table['row_spacing']['intra_row']
         for i, memop in enumerate(memops):
             text = f"{memop}"
             if i == self.op_idx:
@@ -100,13 +71,10 @@ class ItrManager:
             #color = sel_text_color if i == self.op_idx else text_color
             text_surface = font.render(text, True, color)
             surface.blit(text_surface, (x, y))
-            y += self.table['metrics']['line_height'] + self.table['row_spacing']['intra_row']
+            y += line_height
 
     def done(self):
-        return (
-            self.itr_idx >= len(self.itrs)
-            #or self.op_idx >= len(self.itrs[self.itr_idx].memops)
-        )
+        return self.itr_idx >= len(self.itrs)
 
     def draw(self):
         if self.done(): return

@@ -2,6 +2,7 @@ import time
 
 import pygame
 
+from commonui import *
 from fonts import fonts, get_font_metrics
 from hvm import Interaction
 from refui import *
@@ -9,13 +10,11 @@ from itrui import ItrManager
 from anim import AnimManager
 from text_cache import TextCache
 
-# Column character widths
-COLUMN_CHARS = [3, 3, 3, 3]  # mem, tag, lab, loc
-
 def get_table_metrics() -> dict:
     metrics = get_font_metrics(fonts.content)
     title_metrics = get_font_metrics(fonts.title)
 
+    column_chars = [3, 3, 3, 3]  # mem, tag, lab, loc
     border_thickness = 2
 
     col_spacing = {
@@ -31,56 +30,80 @@ def get_table_metrics() -> dict:
         col_spacing['margin']
     ]
     row_spacing = {
-        'title_to_header': 2, # metrics['quarter_line'],
-        'header_to_line': 2, # metrics['quarter_line'],
-        'margin': 2, # metrics['quarter_line'],
+        'title_to_header': 2,
+        'header_to_line': 2,
+        'margin': 2,
         'intra_row': 2
     }
-    table_header_height = (
+    header_height = (
         title_metrics['line_height'] // 2 + row_spacing['title_to_header'] +
         metrics['line_height'] + row_spacing['header_to_line'] + 1
     )
     term_width = (
-        sum(chars * metrics['char_width'] for chars in COLUMN_CHARS[1:]) +
-        col_spacing['intra_term'] * (len(COLUMN_CHARS[1:]) - 1)
+        sum(chars * metrics['char_width'] for chars in column_chars[1:]) +
+        col_spacing['intra_term'] * (len(column_chars[1:]) - 1)
     )
+    screen_width = 1850
+    screen_height = 860
+    free_section_width = 300
+    itr_section_width = 240
+
+    ref_left_margin = metrics['char_width'] * 4
+    ref_horz_spacing = term_width + metrics['char_width'] * 2
+    ref_width = (
+        sum(chars * metrics['char_width'] for chars in column_chars) +
+        sum(col_spacing_by_index)
+    )
+    ref_section_width = screen_width - max(itr_section_width, free_section_width)
+    #FUDGE = 35
+    #ref_section_width = (ref_left_margin + ref_width * 2 + ref_horz_spacing * 2 + FUDGE)
+    ref_scroll = ref_width + ref_horz_spacing
+
     layout = {
-        'left_margin': metrics['char_width'] * 4,
+        'left_margin': ref_left_margin,
         'top_margin':  85,
         'vert_spacing': 10,
-        'horz_spacing': term_width + metrics['char_width'] * 2
+        'horz_spacing': ref_horz_spacing,
+        'section_width': ref_section_width,
+        #'columns': ref_columns,
+        'scroll_width': ref_scroll,
+        'scroll_offset': 0,
+        'first_column': 0
     }
     return {
+        'width': screen_width,
+        'height':  screen_height,
+        'top': layout['top_margin'] - metrics['line_height'] - metrics['line_height'] // 2,
         'col_spacing_by_index': col_spacing_by_index,
         'col_spacing': col_spacing,
         'row_spacing': row_spacing,
-        'column_chars': COLUMN_CHARS,
-        'column_widths': [chars * metrics['char_width'] for chars in COLUMN_CHARS],
-        'table_header_height': table_header_height,
-        'table_border_thickness': border_thickness,
-        'top_row_y': table_header_height + row_spacing['margin'],
+        'column_chars': column_chars,
+        'column_widths': [chars * metrics['char_width'] for chars in column_chars],
+        'header_height': header_height,
+        'border_thickness': border_thickness,
+        'top_row_y': header_height + row_spacing['margin'],
         'term_width': term_width,
         'layout': layout,
-        'width': sum(chars * metrics['char_width'] for chars in COLUMN_CHARS) +
-                 sum(col_spacing_by_index),
+        'ref_width': ref_width,
         'metrics': metrics,
-        'title_metrics': title_metrics,
+        'title_metrics': title_metrics
     }
 
 def draw_instructions(screen: pygame.Surface, table: dict):
     if not 'speed' in table: table['speed'] = 1
     instructions = [
-        "SPACE: Execute next",
-        "Click: Toggle select",
+        "SPACE: Execute next        ←/→: Scroll",
+        f"Click: Toggle select       +/-: Speed({table['speed']})",
         #"D:     Toggle dependencies",
-        "M:     Toggle metadata",
-        f"+/-:   Speed({table['speed']})"
+        "M:     Toggle metadata"
+        #,f"+/-:   Speed({table['speed']})"
     ]
     y = 0
+    line_height = table['metrics']['line_height'] + table['row_spacing']['intra_row']
     for i, instruction in enumerate(instructions):
         text = fonts.content.render(instruction, True, WHITE)
         screen.blit(text, (10, 10 + y))
-        y += table['metrics']['line_height'] + table['row_spacing']['intra_row']
+        y += line_height
 
 def add_speed(amt: int, table: dict):
     speed = table['speed'] + amt
@@ -100,6 +123,10 @@ def event_handler(event, ref_mgr: RefManager, itr_mgr: ItrManager, anim_mgr: Ani
             add_speed(-1, table)
         elif event.key == pygame.K_EQUALS and event.mod & pygame.KMOD_SHIFT:
             add_speed(1, table)
+        elif event.key == pygame.K_LEFT:
+            ui.scroll_mgr.scroll(-1, table, False)
+        elif event.key == pygame.K_RIGHT:
+            ui.scroll_mgr.scroll(1, table, False)
         elif event.key == pygame.K_q:
             return False
     elif event.type == pygame.MOUSEBUTTONDOWN:
@@ -111,11 +138,11 @@ def event_handler(event, ref_mgr: RefManager, itr_mgr: ItrManager, anim_mgr: Ani
 def event_loop(itrs: list[Interaction]):
     pygame.display.init()
 
-    screen = pygame.display.set_mode((1850, 1050))
+    table = get_table_metrics()
+    screen = pygame.display.set_mode((table['width'], table['height']))
     pygame.display.set_caption("HVM3 Node Visualizer")
     clock = pygame.time.Clock()
 
-    table = get_table_metrics()
     text_cache = TextCache()
 
     ref_mgr = RefManager(screen, table, text_cache)
@@ -139,6 +166,7 @@ def event_loop(itrs: list[Interaction]):
 
         draw_instructions(screen, table)
 
+        ui.scroll_mgr.update(table)
         ref_mgr.draw_all()
         anim_mgr.update_all(current_time)
         anim_mgr.draw_all()

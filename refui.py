@@ -4,24 +4,10 @@ from typing import Tuple, Optional
 
 import pygame
 
-from commonui import Position
+from commonui import *
 from fonts import fonts
 from hvm import *
 from text_cache import TextCache
-
-TITLE_FONT_SIZE = 14
-FONT_SIZE = 14
-
-DIM_GREEN = (0, 160, 0)
-DIM_YELLOW = (192, 192, 0)
-WHITE = (255, 255, 255)
-BLACK = (0, 0, 0)
-GRAY = (128, 128, 128)
-LIGHT_GRAY = (64, 64, 64)
-BRIGHT_GREEN = (0, 255, 0)
-YELLOW = (255, 255, 0)
-BRIGHT_ORANGE = (255, 190, 30)
-ORANGE = (255, 165, 0)
 
 def ref_name(def_idx: int):
     d = {
@@ -108,7 +94,7 @@ class RefRect:
         color = md['done_color'] if nod_trm.memops_done() else md['text_color']
         val_surf = md['font'].render(value, True, color)
         table = md['table']
-        x = self.x - (table['metrics']['char_width'] * 3 + table['metrics']['half_char'])
+        x = self.x - (table['metrics']['char_width'] * 3 + table['metrics']['half_char']) + md['offset']
         surface.blit(val_surf, (x, y))
 
     """
@@ -162,7 +148,7 @@ class RefRect:
         color = md['done_color'] if nod_trm.memops_done() else md['text_color']
         ctx_surf = md['font'].render(ctx, True, color)
         table = md['table']
-        x = self.x + table['width'] + table['metrics']['char_width']
+        x = self.x + table['ref_width'] + table['metrics']['char_width'] + md['offset']
         surface.blit(ctx_surf, (x, y))
 
     def draw_metadata(self, nod_trm: InPlaceNodeTerm, surface: pygame.Surface, y: int, md: dict):
@@ -200,16 +186,21 @@ class RefRect:
         table = md['table']
 
         # Draw background
-        pygame.draw.rect(surface, BLACK, (self.x, self.y, self.width, self.height))
+        #pygame.draw.rect(surface, BLACK, (self.x, self.y, self.width, self.height))
 
         # Draw border
-        border_rect = pygame.Rect(self.x, self.y, self.width, self.height)
-        pygame.draw.rect(surface, border_color, border_rect, table['table_border_thickness'])
+        rect = pygame.Rect(self.x + md['offset'], self.y, self.width, self.height)
+        """
+        if (rect.right + table['layout']['horz_spacing'] > table['layout']['section_width'] or
+            rect.left < table['layout']['left_margin']):
+            return
+        """
+        pygame.draw.rect(surface, border_color, rect, table['border_thickness'])
 
         # Draw title with background to clip the border
         title_surface = title_font.render(ref_name(self.ref.def_idx), True, header_color)
         title_width = title_surface.get_width()
-        title_x = self.x + (self.width - title_width) // 2
+        title_x = self.x + (self.width - title_width) // 2 + md['offset']
         title_y = self.y - title_font.get_height() // 2
 
         title_bg_rect = pygame.Rect(title_x - 5, title_y, title_width + 10, title_font.get_height())
@@ -219,7 +210,7 @@ class RefRect:
         # Column headers
         headers = ["MEM", "TAG", "LAB", "LOC"]
         title_bottom = title_y + table['title_metrics']['line_height']
-        header_x = self.x + table['col_spacing']['margin']
+        header_x = self.x + table['col_spacing']['margin'] + md['offset']
         header_y = title_bottom + table['row_spacing']['title_to_header']
 
         for i, header in enumerate(headers):
@@ -231,8 +222,8 @@ class RefRect:
 
         # Draw horizontal line under headers
         line_y = header_y + table['metrics']['line_height'] + table['row_spacing']['header_to_line']
-        line_left = self.x + table['col_spacing']['margin']
-        line_right = self.x + self.width - table['col_spacing']['margin']
+        line_left = self.x + table['col_spacing']['margin'] + md['offset']
+        line_right = self.x + self.width - table['col_spacing']['margin'] + md['offset']
         pygame.draw.line(surface, line_color, (line_left, line_y), (line_right, line_y), 1)
 
         # Draw data rows
@@ -242,7 +233,7 @@ class RefRect:
             'text_color': text_color,
             'done_color': done_color,
         }
-        x = self.x + table['col_spacing']['margin']
+        x = self.x + table['col_spacing']['margin'] + md['offset']
         y = line_y + 1 + table['row_spacing']['margin']
         for node in self.ref.nodes:
             for nod_trm in (node.neg, node.pos):
@@ -261,14 +252,14 @@ class RefManager:
         self.show_deps_only: bool = False
         self.show_md: Metadata = Metadata.NONE
 
-    def calculate_ref_dimensions(self, ref: ExpandRef) -> Tuple[int, int]:
-        width = self.table['width']
+    def get_ref_extents(self, ref: ExpandRef) -> Tuple[int, int]:
+        width = self.table['ref_width']
         num_ops = len(ref.nodes) * 2
         height = (
-            self.table['table_header_height'] + self.table['row_spacing']['margin'] * 2 +
+            self.table['header_height'] + self.table['row_spacing']['margin'] * 2 +
             self.table['metrics']['line_height'] * num_ops +
             self.table['row_spacing']['intra_row'] * (num_ops - 1) +
-            self.table['table_border_thickness']
+            self.table['border_thickness']
         )
         return width, height
 
@@ -278,7 +269,7 @@ class RefManager:
         self.ref_map[rect.ref.id] = rect
 
     def add_ref(self, ref: ExpandRef, color_scheme: str = "dim terminal") -> RefRect:
-        width, height = self.calculate_ref_dimensions(ref)
+        width, height = self.get_ref_extents(ref)
         x, y = self._find_next_position(width, height)
 
         rect = RefRect(ref, x, y, width, height, color_scheme)
@@ -294,23 +285,22 @@ class RefManager:
 
         # Try to place under last ref
         last_rect = self.all_rects[-1]
-        potential_y = last_rect.y + last_rect.height + self.table['layout']['vert_spacing']
+        next_y = last_rect.y + last_rect.height + self.table['layout']['vert_spacing']
 
-        # Check if it fits vertically and doesn't exceed screen bounds
-        if potential_y + height <= self.screen.get_height():
-            return last_rect.x, potential_y
+        # Check if it fits vertically
+        if next_y + height <= self.screen.get_height():
+            return last_rect.x, next_y
 
-        # No room in last column, create a new column
-        new_column_x = last_rect.x + last_rect.width + self.table['layout']['horz_spacing']
+        # No room in last column, try to create a new column
+        next_x = last_rect.x + last_rect.width + self.table['layout']['horz_spacing']
 
         # Check if new column fits horizontally
-        if new_column_x + width <= self.screen.get_width():
-            return new_column_x, self.table['layout']['top_margin']
+        req_width = width + self.table['layout']['horz_spacing']
+        if next_x + req_width > self.table['layout']['section_width']:
+            # Doesn't fit horizontally; scroll
+            ui.scroll_mgr.scroll(1, self.table)
 
-        # If we can't fit horizontally, wrap to a new "row" of columns
-        # This is a fallback - you might want to handle this differently
-        # TODO
-        raise RuntimeError("ran out of screen space")
+        return next_x, self.table['layout']['top_margin']
 
     """
     def remove_appref(self, app_ref: AppRef) -> bool:
@@ -341,7 +331,8 @@ class RefManager:
         md = {
             'table' : self.table,
             'text_cache': self.text_cache,
-            'show_md': self.show_md
+            'show_md': self.show_md,
+            'offset': ui.scroll_mgr.offset
         }
         for rect in self.disp_rects:
             rect.draw(self.screen, md)
@@ -417,8 +408,8 @@ class RefManager:
         return dep_rects
     """
 
+    """
     def toggle_show_dependencies(self):
-        """
         if self.show_deps_only:
             self.all_rects_visible()
             self.show_deps_only = False
@@ -433,4 +424,4 @@ class RefManager:
 
         self.only_rects_visible(dep_rects)
         self.show_deps_only = True
-        """
+    """

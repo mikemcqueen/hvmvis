@@ -4,7 +4,7 @@ from typing import List, Tuple, Optional, NamedTuple
 
 import pygame
 
-from commonui import Color, Position
+from commonui import *
 from hvm import MemOp, Term, Interaction
 from refui import * #RefManager, RefRect
 from fonts import fonts
@@ -21,8 +21,6 @@ durations: dict[str, float] = {
     'fade_out':     0.2,
     'wait':         0.0
 }
-
-TOP = 30.0
 
 class Phase(NamedTuple):
     name: str
@@ -131,7 +129,7 @@ class AnimState:
     def slide_over_end_pos(self, rect: RefRect, table: dict) -> Position:
         # TODO: support slide-in-from-left, maybe
         slide_distance = slide_right_distance(table)
-        return Position(term_x_pos(rect, table) + slide_distance, TOP)
+        return Position(term_x_pos(rect, table) + slide_distance, table['top'])
 
     def slide_out_end_pos(self, table: dict) -> Position:
         # TODO: support slide-out-to-left, maybe
@@ -184,11 +182,12 @@ def ease_in_out_cubic(t: float) -> float:
         return 1 - pow(-2 * t + 2, 3) / 2
 
 def interpolate_color(color1: Color, color2: Color, t: float) -> Color:
-    return (
+    color = (
         int(color1[0] + (color2[0] - color1[0]) * t),
         int(color1[1] + (color2[1] - color1[1]) * t),
         int(color1[2] + (color2[2] - color1[2]) * t)
     )
+    return tuple(max(0, min(255, x)) for x in color)
 
 class AnimManager:
     def __init__(self, screen: pygame.Surface, ref_mgr: RefManager, table: dict, text_cache: TextCache):
@@ -264,10 +263,10 @@ class AnimManager:
 
         elif phase_name == 'slide_to_top':
             if not anim.end_pos:
-                anim.end_pos = Position(anim.beg_pos.x, TOP)
+                anim.end_pos = Position(anim.beg_pos.x, self.table['top'])
             t_eased = ease_in_out_cubic(t)
             from_y = anim.beg_pos.y
-            to_y = TOP
+            to_y = self.table['top']
             #vert_slide_pos
             anim.cur_pos = Position(anim.cur_pos.x, from_y + (to_y - from_y) * t_eased)
             anim.color = BRIGHT_GREEN
@@ -315,8 +314,7 @@ class AnimManager:
         # Animation continues
         return False
 
-    def draw_animated_term(self, surface: pygame.Surface, anim: AnimState,
-                           font: pygame.font.Font):
+    def draw(self, surface: pygame.Surface, anim: AnimState, font: pygame.font.Font):
         if anim.phase == len(anim.phases):
             return
 
@@ -338,10 +336,11 @@ class AnimManager:
             f"{term.lab:03d}",
             f"{term.loc:03d}"
         )
-        pos = anim.cur_pos
+        offset = ui.scroll_mgr.offset
+        pos = Position(anim.cur_pos.x + offset, anim.cur_pos.y)
         for i, (value, col_x) in enumerate(zip(term_data, col_positions)):
-            # Use cache for standard colors, render directly for interpolated colors
             if anim.color in (DIM_GREEN, BRIGHT_GREEN, ORANGE, BRIGHT_ORANGE):
+                # Use cache for standard colors
                 rndr_txt = self.text_cache.get_rendered_text(value)
 
                 if anim.color in (BRIGHT_GREEN, BRIGHT_ORANGE):
@@ -355,7 +354,7 @@ class AnimManager:
                         rndr_txt.dim.color = anim.color
                     txt_surf = rndr_txt.dim.surface
             else:
-                # Interpolated color - render directly
+                # Render directly for interpolated colors
                 txt_surf = font.render(value, True, anim.color)
             
             surface.blit(txt_surf, (pos.x + col_x, pos.y))
@@ -414,7 +413,7 @@ class AnimManager:
             nod_trm = NodeTerm(term)
 
         x = (self.screen.get_width() - self.table['term_width']) // 2
-        y = TOP
+        y = self.table['top']
         anim = AnimState(nod_trm.copy(), itr, Position(x, y),
                          Phase.make_list('fade_in'), color = DIM_GREEN)
         self.add(anim)
@@ -432,7 +431,7 @@ class AnimManager:
         # there might be some epsilon here to consider
         y_change = False
         if anim.beg_pos.x != slide_x:
-            if anim.beg_pos.y != TOP:
+            if anim.beg_pos.y != self.table['top']:
                 Phase.append(anim.phases, 'slide_to_top')
                 y_change = True
             Phase.append(anim.phases, 'slide_over')
@@ -492,4 +491,4 @@ class AnimManager:
 
     def draw_all(self):
         for anim in self.anims:
-            self.draw_animated_term(self.screen, anim, fonts.content)
+            self.draw(self.screen, anim, fonts.content)
