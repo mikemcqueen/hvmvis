@@ -15,11 +15,6 @@ YELLOW = (255, 255, 0)
 DIM_YELLOW = (192, 192, 0)
 DIM_GREEN = (0, 160, 0)
 
-"""
-class ItrLoc(NamedTuple):
-    trm_loc: int
-    neg_loc: Optional[int]
-"""
 @dataclass(eq=False)
 class RefCount:
     cnt: int
@@ -38,6 +33,11 @@ class FreeManager:
         self.booted = False
         self.end_loc = 0
         self.itr_locs: dict[int, Optional[int]] = {}
+        self.logging = True
+
+    def log(self, msg: str):
+        if self.logging:
+            print(msg)
 
     def draw(self):
         if self.end_loc < 3: return
@@ -74,12 +74,10 @@ class FreeManager:
                 if loc_x + self.table['free']['col_width'] > self.rect.right:
                     break
 
-    def add_itr_loc(self, nod_loc: int, trm_loc: Optional[int] = None,
-                    force: Optional[bool] = True):
-        # TODO no longer use force
-        if force or nod_loc not in self.itr_locs:
-            print(f"adding itr_loc[{nod_loc}] = {trm_loc}")
-            self.itr_locs[nod_loc] = trm_loc
+    def add_itr_loc(self, nod_loc: int, trm_loc: Optional[int] = None):
+        #if nod_loc not in self.itr_locs:
+        self.log(f"adding itr_loc[{nod_loc}] = {trm_loc}")
+        self.itr_locs[nod_loc] = trm_loc
 
     def is_neg_loc(self, loc: int) -> bool:
         return (loc & 1) == 0 
@@ -97,10 +95,6 @@ class FreeManager:
                 if trm_loc == None: continue
                 if self.is_neg_loc(nod_loc):
                     # Rule #1
-                    """
-                    print(f"dec trm_loc {trm_loc} @ neg nod_loc {nod_loc} because nod {nod_refcnt}")
-                    if self.loc_decr(trm_loc, "process neg"):
-                    """
                     neg_locs.add(self.neg_loc(trm_loc))
                 else:
                     # Rule #2
@@ -108,11 +102,6 @@ class FreeManager:
                     neg_refcnt = self.refcnts[neg_loc]
                     if neg_refcnt.zero:
                         neg_locs.add(neg_loc)
-                        """
-                        print(f"dec trm_loc {trm_loc} @ pos nod_loc {nod_loc} because nod,neg is {nod_refcnt},{neg_refcnt}")
-                        if self.loc_decr(trm_loc, "process pos"):
-                            neg_locs.add(self.neg_loc(trm_loc))
-                        """
 
         while neg_locs:
             neg_loc = neg_locs.pop()
@@ -120,9 +109,8 @@ class FreeManager:
             pos_refcnt = self.refcnts[neg_loc + 1]
             total_cnt = neg_refcnt.cnt + pos_refcnt.cnt
             if total_cnt == 0:
-                print(f"setting node @ {neg_loc} free because total refcounts are {total_cnt}: {neg_refcnt},{pos_refcnt}")
-                assert not neg_refcnt.free
-                assert not pos_refcnt.free
+                self.log(f"setting node @ {neg_loc} free because total refcounts are {total_cnt}: {neg_refcnt},{pos_refcnt}")
+                assert not (neg_refcnt.free or pos_refcnt.free)
                 neg_refcnt.free = True
                 pos_refcnt.free = True
 
@@ -136,20 +124,16 @@ class FreeManager:
     def loc_incr(self, loc: int, src: str):
         refcnt = self.refcnts[loc]
         refcnt.cnt += 1
-        print(f"loc_incr loc {loc} to {refcnt} from {src}")
+        self.log(f"loc_incr loc {loc} to {refcnt} from {src}")
         
     def loc_decr(self, loc: int, src: str) -> bool:
         refcnt = self.refcnts[loc]
         if refcnt.cnt <= 0:
-            print(f"loc_decr loc {loc} {refcnt}")
+            self.log(f"loc_decr loc {loc} {refcnt}")
             assert refcnt.cnt > 0
         refcnt.cnt -= 1
-        print(f"loc_decr loc {loc} to {refcnt} from {src}")
+        self.log(f"loc_decr loc {loc} to {refcnt} from {src}")
         return refcnt.zero
-        # any time a node loc is decremented to zero, add it to the set of locs
-        # to check-if-free at the end of the interaction
-        #if refcnt.zero:
-        #    self.add_itr_loc(loc, None, False)
 
     def term_incr(self, term: Term, src: str) -> bool:
         if term.has_loc():
@@ -157,10 +141,9 @@ class FreeManager:
             return True
         return False
 
-    def term_decr(self, term: Term, src: str) -> bool:
+    def term_decr(self, term: Term, src: str):
         if term.has_loc():
-            return self.loc_decr(term.loc, src)
-        return False
+            self.loc_decr(term.loc, src)
 
     def redex_push(self, redex: Redex):
         self.term_incr(redex.neg.term, "redex push")
@@ -181,7 +164,7 @@ class FreeManager:
         self.process_itr_locs()
         self.itr_locs = {}
 
-        if itr.memops: print("---on_itr---")
+        if itr.memops: self.log("---on_itr---")
 
         if itr.redex:
             self.redex_pop(itr.redex)
@@ -195,17 +178,10 @@ class FreeManager:
             nod_refcnt = self.refcnts[memop.loc]
             if memop.is_exch() and not memop.put.has_loc() and nod_refcnt.zero:
                 self.add_itr_loc(memop.loc)
-            elif self.term_incr(memop.put, f"put {memop.put} to {memop.loc}"):
-                if nod_refcnt.zero:
-                    self.add_itr_loc(memop.loc, memop.put.loc)
+            elif self.term_incr(memop.put, f"put {memop.put} to {memop.loc}") and nod_refcnt.zero:
+                self.add_itr_loc(memop.loc, memop.put.loc)
         if memop.got:
-            if self.term_decr(memop.got, f"got {memop.got} from {memop.loc}"):
-                pass
-            """
-                got_refcnt = self.refcnts[memop.got.loc]
-                if nod_refcnt.zero:
-                    self.add_itr_loc(memop.got.loc)
-            """
+            self.term_decr(memop.got, f"got {memop.got} from {memop.loc}")
 
     def boot(self, term: Term):
         assert not self.booted
