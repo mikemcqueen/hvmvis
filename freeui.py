@@ -90,12 +90,10 @@ class FreeManager:
         for nod_loc, trm_loc in self.itr_locs.items():
             nod_refcnt = self.refcnts[nod_loc]
             if nod_refcnt.zero:
-                #if self.is_neg_loc(nod_loc):
                 neg_locs.add(self.neg_loc(nod_loc))
-                if trm_loc == None: continue
-                if self.is_neg_loc(nod_loc):
-                    # Rule #1
+                if trm_loc and self.is_neg_loc(nod_loc):
                     neg_locs.add(self.neg_loc(trm_loc))
+
                 """
                 else:
                     # Rule #2
@@ -177,11 +175,11 @@ class FreeManager:
 
     def on_memop(self, memop: MemOp):
         if memop.put:
+            self.term_incr(memop.put, f"put {memop.put} to {memop.loc}")
             nod_refcnt = self.refcnts[memop.loc]
-            if memop.is_exch() and not memop.put.has_loc() and nod_refcnt.zero:
-                self.add_itr_loc(memop.loc)
-            elif self.term_incr(memop.put, f"put {memop.put} to {memop.loc}") and nod_refcnt.zero:
-                self.add_itr_loc(memop.loc, memop.put.loc)
+            if nod_refcnt.zero:
+                self.add_itr_loc(memop.loc,
+                                 memop.put.loc if memop.put.has_loc() else None)
         if memop.got:
             self.term_decr(memop.got, f"got {memop.got} from {memop.loc}")
 
