@@ -33,7 +33,7 @@ class FreeManager:
         self.booted = False
         self.end_loc = 0
         self.itr_locs: dict[int, Optional[int]] = {}
-        self.logging = True
+        self.logging = False
 
     def log(self, msg: str):
         if self.logging:

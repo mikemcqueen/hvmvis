@@ -280,7 +280,7 @@ class RefManager:
         return self.ref_map[ref.id] if ref.id in self.ref_map else None
 
     def rect_at_position(self, x: int, y: int) -> Optional[RefRect]:
-        return next((r for r in self.all_rects if r.get_rectd().collidepoint(x, y)), None)
+        return next((r for r in self.all_rects if r.get_rect().collidepoint(x, y)), None)
 
     def rect_at_loc(self, loc: int) -> RefRect:
         return next((r for r in self.all_rects if r.ref.contains(loc)), None)
