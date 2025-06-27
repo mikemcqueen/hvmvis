@@ -96,12 +96,14 @@ class FreeManager:
                 if self.is_neg_loc(nod_loc):
                     # Rule #1
                     neg_locs.add(self.neg_loc(trm_loc))
+                """
                 else:
                     # Rule #2
                     neg_loc = nod_loc - 1
                     neg_refcnt = self.refcnts[neg_loc]
                     if neg_refcnt.zero:
                         neg_locs.add(neg_loc)
+                """
 
         while neg_locs:
             neg_loc = neg_locs.pop()
@@ -109,7 +111,7 @@ class FreeManager:
             pos_refcnt = self.refcnts[neg_loc + 1]
             total_cnt = neg_refcnt.cnt + pos_refcnt.cnt
             if total_cnt == 0:
-                self.log(f"setting node @ {neg_loc} free because total refcounts are {total_cnt}: {neg_refcnt},{pos_refcnt}")
+                self.log(f"freeing node @ {neg_loc} total_cnt {total_cnt}: {neg_refcnt},{pos_refcnt}")
                 assert not (neg_refcnt.free or pos_refcnt.free)
                 neg_refcnt.free = True
                 pos_refcnt.free = True
