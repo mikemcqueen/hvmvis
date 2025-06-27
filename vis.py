@@ -144,7 +144,7 @@ def event_handler(event, ref_mgr: RefManager, itr_mgr: ItrManager, anim_mgr: Ani
         elif event.key == pygame.K_q:
             return False
     elif event.type == pygame.MOUSEBUTTONDOWN:
-        rect = ref_mgr.get_rect_at_position(*event.pos)
+        rect = ref_mgr.rect_at_position(*event.pos)
         if rect:
             rect.selected = not rect.selected
     return True
@@ -161,7 +161,7 @@ def event_loop(root: Term, itrs: list[Interaction]):
 
     ref_mgr = RefManager(screen, table, text_cache)
     anim_mgr = AnimManager(screen, ref_mgr, table, text_cache)
-    free_mgr = FreeManager(screen, table)
+    free_mgr = FreeManager(screen, ref_mgr, table)
     itr_mgr = ItrManager(screen, itrs, ref_mgr, anim_mgr, free_mgr, table, text_cache)
 
     free_mgr.boot(root)

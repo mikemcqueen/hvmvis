@@ -279,6 +279,23 @@ class RefManager:
     def get_rect(self, ref: ExpandRef) -> RefRect:
         return self.ref_map[ref.id] if ref.id in self.ref_map else None
 
+    def rect_at_position(self, x: int, y: int) -> Optional[RefRect]:
+        """
+        for rect in self.disp_rects:
+            if rect.get_rect().collidepoint(x, y):
+                return rect
+        """
+        return next((r for r in self.all_rects if r.get_rectd().collidepoint(x, y)), None)
+
+    def rect_from_loc(self, loc: int) -> RefRect:
+        """
+        for rect in self.all_rects:
+            if rect.ref.contains(loc):
+                return rect
+        return None
+        """
+        return next((r for r in self.all_rects if r.ref.contains(loc)), None)
+
     def _find_next_position(self, width: int, height: int) -> Tuple[int, int]:
         if not self.all_rects:
             return self.table['layout']['left_margin'], self.table['layout']['top_margin']
@@ -313,12 +330,6 @@ class RefManager:
                 return True
         return False
     """
-
-    def get_rect_at_position(self, x: int, y: int) -> RefRect:
-        for rect in self.disp_rects:
-            if rect.get_rect().collidepoint(x, y):
-                return rect
-        return None
 
     """
     def reposition_all(self):
@@ -358,13 +369,6 @@ class RefManager:
     def all_rects_visible(self):
         for rect in self.all_rects:
             rect.visible = True
-
-    def rect_from_loc(self, loc: int) -> RefRect:
-        #return rect for rect in self.all_rects if rect.ref.contains(loc) else None
-        for rect in self.all_rects:
-            if rect.ref.contains(loc):
-                return rect
-        return None
 
     def toggle_show_metadata(self):
         self.show_md += 1

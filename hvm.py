@@ -62,11 +62,14 @@ class MemOp(MemOpBase):
         else: # self.op == 'STOR'
             return f"{self.op},{self.lvl},{self.put.tag},{self.put.loc},{self.loc}"
 
+    def is_exch(self) -> bool:
+        return self.op == 'EXCH'
+
     def is_take(self) -> bool:
-        return self.op == 'EXCH' and self.put.taken()
+        return self.is_exch() and self.put.taken()
 
     def is_swap(self) -> bool:
-        return self.op == 'EXCH' and not self.put.taken()
+        return self.is_exch() and not self.put.taken()
 
     def is_root_itr(self) -> bool:
         return self.itr_name == '______'
