@@ -75,7 +75,6 @@ class FreeManager:
                     break
 
     def add_itr_loc(self, nod_loc: int, trm_loc: Optional[int] = None):
-        #if nod_loc not in self.itr_locs:
         self.log(f"adding itr_loc[{nod_loc}] = {trm_loc}")
         self.itr_locs[nod_loc] = trm_loc
 
@@ -89,37 +88,31 @@ class FreeManager:
         neg_locs: set[int] = set()
         for nod_loc, trm_loc in self.itr_locs.items():
             nod_refcnt = self.refcnts[nod_loc]
-            if nod_refcnt.zero:
-                neg_locs.add(self.neg_loc(nod_loc))
-                if trm_loc and self.is_neg_loc(nod_loc):
-                    neg_locs.add(self.neg_loc(trm_loc))
-
-                """
-                else:
-                    # Rule #2
-                    neg_loc = nod_loc - 1
-                    neg_refcnt = self.refcnts[neg_loc]
-                    if neg_refcnt.zero:
-                        neg_locs.add(neg_loc)
-                """
+            if not nod_refcnt.zero:
+                continue
+            neg_locs.add(self.neg_loc(nod_loc))
+            if trm_loc and self.is_neg_loc(nod_loc):
+                neg_locs.add(self.neg_loc(trm_loc))
 
         while neg_locs:
             neg_loc = neg_locs.pop()
             neg_refcnt = self.refcnts[neg_loc]
             pos_refcnt = self.refcnts[neg_loc + 1]
             total_cnt = neg_refcnt.cnt + pos_refcnt.cnt
-            if total_cnt == 0:
-                self.log(f"freeing node @ {neg_loc} total_cnt {total_cnt}: {neg_refcnt},{pos_refcnt}")
-                assert not (neg_refcnt.free or pos_refcnt.free)
-                neg_refcnt.free = True
-                pos_refcnt.free = True
+            if total_cnt != 0:
+                continue
+            
+            self.log(f"freeing node @ {neg_loc} total {total_cnt} {neg_refcnt} {pos_refcnt}")
+            assert not (neg_refcnt.free or pos_refcnt.free)
+            neg_refcnt.free = True
+            pos_refcnt.free = True
 
-                node = self.ref_mgr.ref_at(neg_loc).node_at(neg_loc)
-                for loc in (neg_loc, neg_loc + 1):
-                    term = node.term_at(loc)
-                    trm_loc = term.loc if term and term.has_loc() else None
-                    if trm_loc and self.loc_decr(trm_loc, "process term"):
-                        neg_locs.add(self.neg_loc(trm_loc))
+            node = self.ref_mgr.ref_at(neg_loc).node_at(neg_loc)
+            for loc in (neg_loc, neg_loc + 1):
+                term = node.term_at(loc)
+                trm_loc = term.loc if term and term.has_loc() else None
+                if trm_loc and self.loc_decr(trm_loc, "process term"):
+                    neg_locs.add(self.neg_loc(trm_loc))
 
     def loc_incr(self, loc: int, src: str):
         refcnt = self.refcnts[loc]
@@ -128,18 +121,14 @@ class FreeManager:
         
     def loc_decr(self, loc: int, src: str) -> bool:
         refcnt = self.refcnts[loc]
-        if refcnt.cnt <= 0:
-            self.log(f"loc_decr loc {loc} {refcnt}")
-            assert refcnt.cnt > 0
+        assert refcnt.cnt > 0, f"loc_decr loc {loc} {refcnt}"
         refcnt.cnt -= 1
         self.log(f"loc_decr loc {loc} to {refcnt} from {src}")
         return refcnt.zero
 
-    def term_incr(self, term: Term, src: str) -> bool:
+    def term_incr(self, term: Term, src: str):
         if term.has_loc():
             self.loc_incr(term.loc, src)
-            return True
-        return False
 
     def term_decr(self, term: Term, src: str):
         if term.has_loc():
