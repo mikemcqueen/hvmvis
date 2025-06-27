@@ -49,14 +49,14 @@ def get_table_metrics() -> dict:
     itr_section_width = 240
     itr_section_height = 320
 
-    free_section_top = 5
-    free_section_width = metrics['char_width'] * 7 * 9 # 7 chars * 9 columns + margin
+    free_section_top = 20
+    free_section_width = metrics['char_width'] * 8 * 5 # 8 chars * 5 columns
     free_section_height = screen_height - itr_section_height - free_section_top
 
     free_layout = {
         'rect': pygame.Rect(screen_width - free_section_width, free_section_top,
                             free_section_width, free_section_height),
-        'col_width': metrics['char_width'] * 6, # '000:00'
+        'col_width': metrics['char_width'] * 7, # '000:0 0'
         'col_spacing': metrics['char_width']
     }
 

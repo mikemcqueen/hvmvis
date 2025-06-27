@@ -280,21 +280,13 @@ class RefManager:
         return self.ref_map[ref.id] if ref.id in self.ref_map else None
 
     def rect_at_position(self, x: int, y: int) -> Optional[RefRect]:
-        """
-        for rect in self.disp_rects:
-            if rect.get_rect().collidepoint(x, y):
-                return rect
-        """
         return next((r for r in self.all_rects if r.get_rectd().collidepoint(x, y)), None)
 
-    def rect_from_loc(self, loc: int) -> RefRect:
-        """
-        for rect in self.all_rects:
-            if rect.ref.contains(loc):
-                return rect
-        return None
-        """
+    def rect_at_loc(self, loc: int) -> RefRect:
         return next((r for r in self.all_rects if r.ref.contains(loc)), None)
+
+    def ref_at(self, loc: int) -> ExpandRef:
+        return rect.ref if (rect := self.rect_at_loc(loc)) else None
 
     def _find_next_position(self, width: int, height: int) -> Tuple[int, int]:
         if not self.all_rects:
@@ -408,7 +400,7 @@ class RefManager:
                 loc = neg.node.ref.first_loc
                 #print(f"fall back redex.neg.node.ref {neg.node.ref.def_idx} first_loc {loc}")
 
-            rect = self.rect_from_loc(loc)
+            rect = self.rect_at_loc(loc)
             #print(f"rect from loc {loc} is {ref_name(rect.ref.def_idx) if rect else None}")
             if rect:
                 dep_rects.append(rect)

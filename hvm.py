@@ -139,7 +139,7 @@ class Redex(MemOpBase):
         if not isinstance(itr, HasNodes) or not itr.nodes: return
         for nod_trm in (redex.neg, redex.pos):
             if not nod_trm.term.has_loc(): continue
-            node = itr.get_node(nod_trm.loc)
+            node = itr.node_at(nod_trm.loc)
             if node:
                 nod_trm.node = node
                 node._init_redex(self)
@@ -250,6 +250,9 @@ class Node:
         assert self.contains(loc), f"loc {loc} neg_loc {neg_loc}"
         return self.neg if loc == self.neg.mem_loc else self.pos
 
+    def term_at(self, loc: int) -> Term:
+        return self.get(loc).term
+
     # funky.
     def set(self, loc: int, term_nod_trm: Term | NodeTerm):
         nod_trm = self.get(loc)
@@ -323,7 +326,7 @@ class ExpandRef(Interaction, HasNodes):
         node.idx = len(self.nodes)
         self.nodes.append(node)
 
-    def get_node(self, loc: int) -> Node:
+    def node_at(self, loc: int) -> Node:
         for node in self.nodes:
             if node.contains(loc):
                 return node
