@@ -149,7 +149,7 @@ class RefBuilder:
 
     """
     def add_node_term(self, node_term: NodeTerm):
-        if not node_term.term.has_loc(): return
+-z      if not node_term.term.has_loc(): return
         assert not node_term.term in self.term_map
         self.term_map[node_term.term] = node_term
     """
@@ -159,6 +159,13 @@ class RefBuilder:
         self.ref = ref
         if add_ref:
             self.refs.append(ref)
+
+    def add_new_node(self, neg: InPlaceNodeTerm, pos: InPlaceNodeTerm):
+        node = Node(neg, pos, self.ref)
+        neg.node = node
+        pos.node = node
+        self.ref.add_node(node)
+        if log: print(f"added node: {len(self.ref.nodes)}")
 
     def new(self, redex: Redex, loc: Optional[int] = None):
         assert not self.ref
@@ -170,23 +177,20 @@ class RefBuilder:
 
     def add(self, fst: MemOp, snd: MemOp):
         if not self.ref:
-            # the REF part is probably bench_parallel_sum specific. maybe should
-            # use mem_loc == 2 instead
-            assert fst.is_root_itr() and snd.is_root_itr() and fst.put.tag == 'REF'
+            assert fst.is_root_itr() and snd.is_root_itr() and fst.loc == 2
             # 2=main, bench_parallel_sum specific
             self.ref = AppRef(2, None, len(self.itrs))
             self.refs.append(self.ref)
             self.itrs.append(self.ref)
 
+            # add placeholder for root node
+            #self.add_new_node(InPlaceNodeTerm(EMPTY_TERM),
+            #    InPlaceNodeTerm(EMPTY_TERM))
+
         if log: print(f"adding node: {fst.put} {snd.put} @ {fst.loc}")
         neg = InPlaceNodeTerm(fst.put, memops=[fst])
         pos = InPlaceNodeTerm(snd.put, memops=[snd])
-        node = Node(neg, pos, self.ref)
-        neg.node = node
-        pos.node = node
-        self.ref.add_node(node)
-        if log: print(f"added node: {len(self.ref.nodes)}")
-
+        self.add_new_node(neg, pos)
         """
         self.add_node_term(neg)
         self.add_node_term(pos)
@@ -239,7 +243,6 @@ class ItrBuilder:
             #    node_term = self.term_map[memop.put]
             #    node_term.stores.append(memop)
         """
-
         node = node_from_loc(self.refs, memop.loc)
         memop.node = node
         memop.itr = self.itr
@@ -274,10 +277,12 @@ def parse_memops(file_content: str) -> list[MemOpBase]:
 
     return memops
 
-def make_all(memops: list[MemOpBase]) -> (list[Redex], list[ExpandRef], list[Interaction]):
+def make_all(memops: list[MemOpBase]) -> (Term, list[ExpandRef],
+                                          list[Interaction], list[Redex]):
     term_map: TermMap = {}
     itrs: list[Interaction] = []
     refs: list[ExpandRef] = []
+    root: Optional[Term] = None
 
     redex_bldr = RedexBuilder(term_map, refs)
     ref_bldr = RefBuilder(term_map, itrs, refs)
@@ -288,8 +293,13 @@ def make_all(memops: list[MemOpBase]) -> (list[Redex], list[ExpandRef], list[Int
     while ops_que:
         fst = ops_que.popleft()
         if is_node_store(fst):
-            snd = ops_que.popleft()
-            ref_bldr.add(fst, snd)
+            # special ha(ck)ndling for root node
+            if fst.loc == 0:
+                assert fst.is_root_itr() and not root
+                root = fst.put
+            else:
+                snd = ops_que.popleft()
+                ref_bldr.add(fst, snd)
             continue
 
         if fst.op == 'PUSH':
@@ -327,7 +337,7 @@ def make_all(memops: list[MemOpBase]) -> (list[Redex], list[ExpandRef], list[Int
         # "meat" of an interaction.
         itr_bldr.add(fst)
 
-    return (itr_bldr.itrs, refs, redex_bldr.redexes)
+    return (root, itr_bldr.itrs, refs, redex_bldr.redexes)
 
 def parse_file(filename: str) -> list[MemOpBase]:
     try:
@@ -350,12 +360,17 @@ def main(filename: str):
         print(f"No memory operations loaded")
         sys.exit(1)
 
-    (itrs, refs, redexes) = make_all(memops)
+    (root, itrs, refs, redexes) = make_all(memops)
 
     print(f"memops {len(memops)} itrs {len(itrs)} refs {len(refs)} nodes {sum_nodes(refs)} redexes {len(redexes)}")
     if log: print(f"{[ref.def_idx for ref in refs]}")
     if log: print(f"ref.def_idx < 7 or >= 1024: {sum(1 for ref in refs if ref.def_idx < 7 or ref.def_idx >= DefIdx.MAT)}")
-    event_loop(itrs)
+    if not root:
+        print(f"No root term found")
+    elif not itrs:
+        print(f"No interactions found")
+    else:
+        event_loop(root, itrs)
 
 if __name__ == "__main__":
     if len(sys.argv) < 2:

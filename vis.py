@@ -5,7 +5,7 @@ import pygame
 from commonui import *
 from fonts import fonts, get_font_metrics
 from freeui import FreeManager
-from hvm import Interaction
+from hvm import Interaction, Term
 from refui import RefManager
 from itrui import ItrManager
 from anim import AnimManager
@@ -149,7 +149,7 @@ def event_handler(event, ref_mgr: RefManager, itr_mgr: ItrManager, anim_mgr: Ani
             rect.selected = not rect.selected
     return True
 
-def event_loop(itrs: list[Interaction]):
+def event_loop(root: Term, itrs: list[Interaction]):
     pygame.display.init()
 
     table = get_table_metrics()
@@ -162,10 +162,10 @@ def event_loop(itrs: list[Interaction]):
     ref_mgr = RefManager(screen, table, text_cache)
     anim_mgr = AnimManager(screen, ref_mgr, table, text_cache)
     free_mgr = FreeManager(screen, table)
-    itr_mgr = ItrManager(screen, itrs, ref_mgr, anim_mgr, table, text_cache)
+    itr_mgr = ItrManager(screen, itrs, ref_mgr, anim_mgr, free_mgr, table, text_cache)
 
-    if itrs:
-        ref_mgr.add_ref(itrs[0], "dim terminal")
+    free_mgr.boot(root)
+    itr_mgr.on_itr(itrs[0])
 
     pygame.key.set_repeat(500, 50)
 

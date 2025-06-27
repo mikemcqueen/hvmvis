@@ -474,9 +474,11 @@ class AnimManager:
         else:
             assert False, f"unknown memop {memop}"
 
-    def remove_waiting(self):
-        self.anims = [anim for anim in self.anims
-                      if not anim.on_last_phase() or not anim.waiting()]
+    def remove_waiting(self) -> list[NodeTerm]:
+        rmvd = [anim.nod_trm for anim in self.anims]
+        #if not anim.on_last_phase() or not anim.waiting()]
+        self.anims = []
+        return rmvd
 
     def update_all(self, now: float):
         all_waiting = True

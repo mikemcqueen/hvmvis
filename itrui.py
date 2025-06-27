@@ -1,6 +1,7 @@
 import pygame
 
 from anim import AnimManager
+from freeui import FreeManager
 from fonts import fonts
 from refui import RefManager
 from hvm import *
@@ -14,12 +15,14 @@ DIM_YELLOW = (192, 192, 0)
 
 class ItrManager:
     def __init__(self, screen: pygame.Surface, itrs: list[Interaction],
-                 ref_mgr: RefManager, anim_mgr: AnimManager, table: dict, text_cache: TextCache):
+                 ref_mgr: RefManager, anim_mgr: AnimManager, free_mgr: FreeManager,
+                 table: dict, text_cache: TextCache):
         self.screen = screen
         self.table = table
         self.itrs = itrs
         self.ref_mgr = ref_mgr
         self.anim_mgr = anim_mgr
+        self.free_mgr = free_mgr
         self.text_cache = text_cache
         self.itr_idx = 0
         self.op_idx = 0
@@ -36,8 +39,6 @@ class ItrManager:
         )
 
     def draw_header(self, surface: pygame.Surface, itr: Interaction):
-        #pygame.draw.rect(surface, BLACK, self.rect)
-
         title_font = fonts.title
         header_color = ORANGE
 
@@ -45,7 +46,7 @@ class ItrManager:
             text = f"{itr.name()}  {itr.redex.neg.term}"
             text2 = f"        {itr.redex.pos.term}"
         else:
-            text = f"APPREF  Boot Redex"
+            text = f"APPREF  Boot Ref"
             text2 = None
 
         x = self.rect.x + 5
@@ -89,20 +90,23 @@ class ItrManager:
         self.op_idx += 1
         if memop:
             self.anim_mgr.animate(memop)
-            # must call execute *after* animate
+            self.free_mgr.on_memop(memop)
+            # execute must be called last
             self.execute(memop)
         else:
-            self.anim_mgr.remove_waiting()
+            rmvd = self.anim_mgr.remove_waiting()
             self.itr_idx += 1
             self.op_idx = 0
             if self.done(): return False
             itr = self.itrs[self.itr_idx]
-            if isinstance(itr, ExpandRef) and itr.nodes:
-                # hacky
-                #if itr.def_idx < 7 or itr.def_idx >= DefIdx.MAT:
-                self.ref_mgr.add_ref(itr, "dim terminal")
+            self.on_itr(itr)
 
         return True
+
+    def on_itr(self, itr: Interaction):
+        self.free_mgr.on_itr(itr)
+        if isinstance(itr, ExpandRef) and itr.nodes:
+            self.ref_mgr.add_ref(itr, "dim terminal")
 
     def execute(self, memop: MemOp):
         if memop.is_take():

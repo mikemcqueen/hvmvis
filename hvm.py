@@ -275,7 +275,7 @@ class DefIdx(IntEnum):
 @dataclass(eq=False, kw_only=True)
 class Interaction(ABC):
     idx: int
-    # the popped redex that resulted in this interaction
+    # the popped redex that started this interaction
     redex: Optional[Redex] = None
     # redexes pushed in this interaction
     redexes: list[Redex] = field(default_factory=list)
