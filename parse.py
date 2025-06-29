@@ -7,7 +7,7 @@ from vis import event_loop
 
 TermMap = dict[Term, NodeTerm]
 
-log = False
+log = True
 
 def make_memop(seq: int, parts: list[str]) -> MemOpBase:
     assert len(parts) >= 7
@@ -27,7 +27,7 @@ def make_memop(seq: int, parts: list[str]) -> MemOpBase:
         got = None
         loc = int(parts[7])
 
-    elif op.strip() == 'POP':
+    elif op == 'LOAD' or op == 'POP':
         # POP: got term only
         got_tag = parts[5]
         got_loc = int(parts[6])
@@ -47,6 +47,9 @@ def make_memop(seq: int, parts: list[str]) -> MemOpBase:
 
         loc = int(parts[9])
 
+    else:
+        assert False, f"{op}"
+        
     return MemOp(
         seq = seq,
         tid = tid,
@@ -63,6 +66,14 @@ def is_redex_push(memop: MemOpBase) -> bool:
     # only works with TPC = 1. more threads means node address may be larger.
     return (
         memop.op == 'STOR' and
+        memop.loc > 100000
+    )
+
+def is_redex_pop(memop: MemOpBase) -> bool:
+    # Arbitrary limit here will bite me eventually
+    # only works with TPC = 1. more threads means node address may be larger.
+    return (
+        memop.op in ('LOAD', 'POP') and
         memop.loc > 100000
     )
 
@@ -310,7 +321,7 @@ def make_all(memops: list[MemOpBase]) -> tuple[Term, list[ExpandRef],
         # i guess a ref only contains node stores and redex pushes?
         ref_bldr.done()
 
-        if fst.op == 'POP':
+        if is_redex_pop(fst):
             itr_bldr.done()
             snd = ops_que.popleft()
             assert fst.itr_name == snd.itr_name
