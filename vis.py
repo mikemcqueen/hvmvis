@@ -1,4 +1,5 @@
 import time
+from types import SimpleNamespace
 
 import pygame
 
@@ -123,28 +124,28 @@ def add_speed(amt: int, table: dict):
     speed = table['speed'] + amt
     table['speed'] = max(1, min(6, speed))
 
-def event_handler(event, ref_mgr: RefManager, itr_mgr: ItrManager, anim_mgr: AnimManager, table: dict):
+def event_handler(event, md: dict):
     if event.type == pygame.QUIT:
         return False
     elif event.type == pygame.KEYDOWN:
         if event.key == pygame.K_SPACE:
-            itr_mgr.next()
+            md.itr_mgr.next()
         #elif event.key == pygame.K_d:
         #    ref_mgr.toggle_show_dependencies()
         elif event.key == pygame.K_m:
-            ref_mgr.toggle_show_metadata()
+            md.ref_mgr.toggle_show_metadata()
         elif event.key == pygame.K_MINUS:
-            add_speed(-1, table)
+            add_speed(-1, md.table)
         elif event.key == pygame.K_EQUALS and event.mod & pygame.KMOD_SHIFT:
-            add_speed(1, table)
+            add_speed(1, md.table)
         elif event.key == pygame.K_LEFT:
-            ui.scroll_mgr.scroll(-1, table, False)
+            ui.scroll_mgr.scroll(-1, md.table, False)
         elif event.key == pygame.K_RIGHT:
-            ui.scroll_mgr.scroll(1, table, False)
+            ui.scroll_mgr.scroll(1, md.table, False)
         elif event.key == pygame.K_q:
             return False
     elif event.type == pygame.MOUSEBUTTONDOWN:
-        rect = ref_mgr.rect_at_position(*event.pos)
+        rect = md.ref_mgr.rect_at_position(*event.pos)
         if rect:
             rect.selected = not rect.selected
     return True
@@ -164,6 +165,13 @@ def event_loop(root: Term, itrs: list[Interaction]):
     free_mgr = FreeManager(screen, ref_mgr, table)
     itr_mgr = ItrManager(screen, itrs, ref_mgr, anim_mgr, free_mgr, table, text_cache)
 
+    md = SimpleNamespace(
+        ref_mgr = ref_mgr,
+        itr_mgr = itr_mgr,
+        anim_mgr = anim_mgr,
+        table = table
+    )
+
     free_mgr.boot(root)
     itr_mgr.on_itr(itrs[0])
 
@@ -173,8 +181,13 @@ def event_loop(root: Term, itrs: list[Interaction]):
     while running:
         current_time = time.monotonic()
 
+        space = False
         for event in pygame.event.get():
-            if not event_handler(event, ref_mgr, itr_mgr, anim_mgr, table):
+            if event.type == pygame.KEYDOWN and event.key == pygame.K_SPACE:
+                if space: continue
+                space = True
+
+            if not event_handler(event, md): #ref_mgr, itr_mgr, anim_mgr, table):
                 running = False
 
         screen.fill(BLACK)

@@ -110,6 +110,11 @@ class AnimState:
         self.phases = []
         self.phase = 0
 
+    def has_phases(self, *names: str):
+        if len(self.phases) != len(names):
+            return False
+        return all(phase.name == name for phase, name in zip(self.phases, names))
+
     def has_last_wait_phase(self) -> bool:
         return self.phases and (self.phases[-1].name == 'wait')
 
@@ -359,10 +364,11 @@ class AnimManager:
             
             surface.blit(txt_surf, (pos.x + col_x, pos.y))
 
-    def slide_out(self, term: Term, rect: RefRect, memop: MemOp) -> Optional[AnimState]:
+    def slide_out(self, memop: MemOp, rect: Optional[RefRect]) -> Optional[AnimState]:
+        term = memop.got
         nod_trm = memop.node.get(memop.loc)
         if term != nod_trm.term:
-            print(f"{term} {nod_trm} memops {nod_trm.memops}")
+            print(f"{term} {nod_trm} memops({nod_trm.memops})")
         assert term == nod_trm.term
 
         if rect is None: return None
@@ -386,35 +392,22 @@ class AnimManager:
 
     def take(self, memop: MemOp):
         rect = self.ref_mgr.get_rect(memop.node.ref)
-        self.slide_out(memop.got, rect, memop)
-
-    # NOTE this is unpredictable if two terms exist with same fields
-    # TODO: can this be changed to use NodeTerm?
-    def find_anim(self, term: Term, itr: Interaction) -> Optional[AnimState]:
-        found = None
-        for anim in self.anims:
-            if itr.idx == anim.itr.idx and term == anim.nod_trm.term:
-                if found:
-                    print(f"found 2 x {term}:{itr.idx} @ {itr.name()}")
-                    assert not found
-                found = anim
-        return found
+        self.slide_out(memop, rect)
 
     # a term was either emergent in code, or was taken from a non-visible ref,
     # or was taken from the current redex. make it "appear out of nowhere"
     def manifest(self, term: Term, itr: Interaction) -> AnimState:
         # was term from redex?
         nod_trm = itr.redex.get_node_term(term)
-        # TODO:
-        #   was a "emergent" term (such as VAR in MATU32)
-        #   came from hidden ref
-        #assert nod_trm, f"no node term for {term}"
-        if nod_trm is None:
+        if nod_trm is not None:
+            nod_trm = nod_trm.copy()
+        else:
             nod_trm = NodeTerm(term)
 
+        # TODO: add scroll offset
         x = (self.screen.get_width() - self.table['term_width']) // 2
         y = self.table['top']
-        anim = AnimState(nod_trm.copy(), itr, Position(x, y),
+        anim = AnimState(nod_trm, itr, Position(x, y),
                          Phase.make_list('fade_in'), color = DIM_GREEN)
         self.add(anim)
         return anim
@@ -444,15 +437,34 @@ class AnimManager:
             self.loc_map[loc] = anim
         """
 
+    # NOTE this is unpredictable if two terms exist with same fields
+    # TODO: can this be changed to use NodeTerm?
+    def find_swap_anim(self, term: Term, itr: Interaction) -> Optional[AnimState]:
+        found = None
+        for anim in self.anims:
+            if itr.idx == anim.itr.idx and term == anim.nod_trm.term:
+                # glorious hack because it's late and i'm not really thinking
+                # clearly, and i want this bug gone. swap anims initially have
+                # three phases: fade_in, slide_out, wait
+                if anim.has_phases('fade_in', 'slide_out', 'wait'):
+                    if found:
+                        print(f"found 2 x {term}:{itr.idx} @ {itr.name()}")
+                        assert not found
+                    found = anim
+                else:
+                    print(f"phases: {[phase for phase in anim.phases]}")
+        return found
+
     def swap(self, memop: MemOp):
-        rect = self.ref_mgr.get_rect(memop.node.ref)
-        got_anim = self.slide_out(memop.got, rect, memop)
-        put_anim = self.find_anim(memop.put, memop.itr)
-        # update the dst node state now if the dst ref isn't visible
-        # call NodeTerm.set() below *after* slide_out() above as set() updates state
-        if rect is None:
+        to_rect = self.ref_mgr.get_rect(memop.node.ref)
+        got_anim = self.slide_out(memop, to_rect)
+        put_anim = self.find_swap_anim(memop.put, memop.itr)
+
+        if to_rect is None:
+            # update the dst node state now if the dst ref isn't visible
             dst_nod_trm = memop.node.get(memop.loc)
             dst_nod_trm.set(memop.put)
+
         if put_anim is None:
             # don't bother manifesting 'emergent' terms that slide to nowhere
             if got_anim is None:
@@ -461,10 +473,10 @@ class AnimManager:
         else:
             put_anim.remove_last_wait_phase()
 
-        if rect is None:
-            Phase.append(anim.phases, 'slide_to_top', 'fade_out')
+        if to_rect is None:
+            Phase.append(put_anim.phases, 'slide_to_top', 'fade_out')
         else:
-            self.move(put_anim, rect, memop.loc)
+            self.move(put_anim, to_rect, memop.loc)
 
     def animate(self, memop: MemOp):
         if memop.is_take():
