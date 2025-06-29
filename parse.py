@@ -7,7 +7,7 @@ from vis import event_loop
 
 TermMap = dict[Term, NodeTerm]
 
-log = True
+log = False
 
 def make_memop(seq: int, parts: list[str]) -> MemOpBase:
     assert len(parts) >= 7
