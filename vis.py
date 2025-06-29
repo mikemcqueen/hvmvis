@@ -129,8 +129,8 @@ def event_handler(event, ref_mgr: RefManager, itr_mgr: ItrManager, anim_mgr: Ani
     elif event.type == pygame.KEYDOWN:
         if event.key == pygame.K_SPACE:
             itr_mgr.next()
-        elif event.key == pygame.K_d:
-            ref_mgr.toggle_show_dependencies()
+        #elif event.key == pygame.K_d:
+        #    ref_mgr.toggle_show_dependencies()
         elif event.key == pygame.K_m:
             ref_mgr.toggle_show_metadata()
         elif event.key == pygame.K_MINUS:

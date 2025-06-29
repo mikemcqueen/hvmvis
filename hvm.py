@@ -117,7 +117,7 @@ class HasNodes(ABC):
         pass
 
     def contains(self, loc: int):
-        return self.first_loc <= loc <= self.last_loc
+        return self.first_loc() <= loc <= self.last_loc()
 
 @dataclass(eq=False)
 class Redex(MemOpBase):
@@ -148,7 +148,7 @@ class Redex(MemOpBase):
     def redex_itr_name(self) -> str:
         return f"{self.neg.tag}{self.pos.tag}"
 
-    def get_node_term(self, term: Term) -> NodeTerm:
+    def get_node_term(self, term: Term) -> Optional[NodeTerm]:
         if term == self.neg: return self.neg
         if term == self.pos: return self.pos
         return None
@@ -247,7 +247,7 @@ class Node:
         return loc in (neg_loc, neg_loc + 1)
 
     def get(self, loc: int) -> InPlaceNodeTerm:
-        assert self.contains(loc), f"loc {loc} neg_loc {neg_loc}"
+        assert self.contains(loc), f"loc {loc} neg_loc {self.neg.mem_loc}"
         return self.neg if loc == self.neg.mem_loc else self.pos
 
     def term_at(self, loc: int) -> Term:
@@ -309,11 +309,13 @@ class ExpandRef(Interaction, HasNodes):
     nodes: list[Node] = field(default_factory=list)
 
     @property
-    def id(self): return (self.def_idx, self.first_loc)
-    @property
-    def first_loc(self) -> int: return self.nodes[0].neg.mem_loc
-    @property
-    def last_loc(self) -> int: return self.nodes[-1].pos.mem_loc
+    def id(self) -> int: return (self.def_idx, self.first_loc())
+
+    def first_loc(self) -> int:
+        return self.nodes[0].neg.mem_loc
+
+    def last_loc(self) -> int:
+        return self.nodes[-1].pos.mem_loc
 
     def __repr__(self) -> str:
         return f"ExpandRef {self.id} {self.redex}"
@@ -326,7 +328,7 @@ class ExpandRef(Interaction, HasNodes):
         node.idx = len(self.nodes)
         self.nodes.append(node)
 
-    def node_at(self, loc: int) -> Node:
+    def node_at(self, loc: int) -> Optional[Node]:
         for node in self.nodes:
             if node.contains(loc):
                 return node
@@ -365,6 +367,7 @@ class AppRef(ExpandRef):
                 case 0: return 'mat'
                 case 1: return 'ret' if nod_trm.is_neg else ''
                 case _: return 'arm' if nod_trm.is_neg else ''
+        return ''
 
     @classmethod
     def get_redex_context(self, nod_trm: NodeTerm) -> str:

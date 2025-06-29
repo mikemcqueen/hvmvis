@@ -147,7 +147,7 @@ class FreeManager:
             for nod_trm in (node.neg, node.pos):
                 self.term_incr(nod_trm.term, "expand ref")
         if ref.nodes:
-            self.end_loc = ref.last_loc + 1
+            self.end_loc = ref.last_loc() + 1
 
     def on_itr(self, itr: Interaction):
         self.process_itr_locs()

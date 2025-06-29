@@ -248,7 +248,7 @@ class RefManager:
         self.text_cache = text_cache
         self.all_rects: list[RefRect] = []
         self.disp_rects: list[RefRect] = []
-        self.ref_map = {}
+        self.ref_map: dict[int, RefRect] = {}
         self.show_deps_only: bool = False
         self.show_md: Metadata = Metadata.NONE
 
@@ -276,16 +276,16 @@ class RefManager:
         self._add_rect(rect)
         return rect
 
-    def get_rect(self, ref: ExpandRef) -> RefRect:
+    def get_rect(self, ref: ExpandRef) -> Optional[RefRect]:
         return self.ref_map[ref.id] if ref.id in self.ref_map else None
 
     def rect_at_position(self, x: int, y: int) -> Optional[RefRect]:
         return next((r for r in self.all_rects if r.get_rect().collidepoint(x, y)), None)
 
-    def rect_at_loc(self, loc: int) -> RefRect:
+    def rect_at_loc(self, loc: int) -> Optional[RefRect]:
         return next((r for r in self.all_rects if r.ref.contains(loc)), None)
 
-    def ref_at(self, loc: int) -> ExpandRef:
+    def ref_at(self, loc: int) -> Optional[ExpandRef]:
         return rect.ref if (rect := self.rect_at_loc(loc)) else None
 
     def _find_next_position(self, width: int, height: int) -> Tuple[int, int]:

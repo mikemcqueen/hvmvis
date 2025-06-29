@@ -41,7 +41,7 @@ class ScrollMgr:
 
     def update(self, table: dict):
         if not self.scrolling(): return
-        offset = self.width / 10
+        offset = self.width // 10
         self.offset += offset
         if abs(self.offset) >= abs(self.end_offset):
             self.offset = self.end_offset

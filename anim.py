@@ -111,7 +111,7 @@ class AnimState:
         self.phase = 0
 
     def has_last_wait_phase(self) -> bool:
-        return self.phases and self.phases[-1].name == 'wait'
+        return self.phases and (self.phases[-1].name == 'wait')
 
     def on_last_phase(self) -> bool:
         return self.phase == len(self.phases) - 1
@@ -251,14 +251,14 @@ class AnimManager:
             if not anim.end_pos:
                 anim.end_pos = Position(term_x_pos(anim.to_rect, self.table), anim.beg_pos.y)
             t_eased = ease_in_out_cubic(t)
-            anim.cur_pos = Position(anim.fractional_x(t_eased), anim.cur_pos.y)
+            anim.cur_pos = Position(int(anim.fractional_x(t_eased)), anim.cur_pos.y)
             anim.color = BRIGHT_GREEN
 
         elif phase_name == 'slide_out':
             if not anim.end_pos:
                 anim.end_pos = anim.slide_out_end_pos(self.table)
             t_eased = ease_in_out_cubic(t)
-            anim.cur_pos = Position(anim.fractional_x(t_eased), anim.cur_pos.y)
+            anim.cur_pos = Position(int(anim.fractional_x(t_eased)), anim.cur_pos.y)
             anim.color = BRIGHT_GREEN
 
         elif phase_name == 'slide_to_top':
@@ -268,17 +268,17 @@ class AnimManager:
             from_y = anim.beg_pos.y
             to_y = self.table['top']
             #vert_slide_pos
-            anim.cur_pos = Position(anim.cur_pos.x, from_y + (to_y - from_y) * t_eased)
+            anim.cur_pos = Position(anim.cur_pos.x, int(from_y + (to_y - from_y) * t_eased))
             anim.color = BRIGHT_GREEN
 
         elif phase_name == 'slide_over':
             if not anim.end_pos:
-                if not anim.to_rect:
+                if anim.to_rect is None:
                     print(f"anim: {anim}")
                 anim.end_pos = anim.slide_over_end_pos(anim.to_rect, self.table)
             t_eased = ease_in_out_cubic(t)
             #horz_slide_pos
-            anim.cur_pos = Position(anim.fractional_x(t_eased), anim.cur_pos.y)
+            anim.cur_pos = Position(int(anim.fractional_x(t_eased)), anim.cur_pos.y)
             anim.color = BRIGHT_GREEN
 
         elif phase_name == 'slide_to_loc':
@@ -359,13 +359,13 @@ class AnimManager:
             
             surface.blit(txt_surf, (pos.x + col_x, pos.y))
 
-    def slide_out(self, term: Term, rect: RefRect, memop: MemOp) -> AnimState:
+    def slide_out(self, term: Term, rect: RefRect, memop: MemOp) -> Optional[AnimState]:
         nod_trm = memop.node.get(memop.loc)
         if term != nod_trm.term:
             print(f"{term} {nod_trm} memops {nod_trm.memops}")
         assert term == nod_trm.term
 
-        if not rect: return None
+        if rect is None: return None
 
         x = term_x_pos(rect, self.table)
         y = term_y_pos(rect, memop.loc, self.table)
@@ -390,7 +390,7 @@ class AnimManager:
 
     # NOTE this is unpredictable if two terms exist with same fields
     # TODO: can this be changed to use NodeTerm?
-    def find_anim(self, term: Term, itr: Interaction) -> AnimState:
+    def find_anim(self, term: Term, itr: Interaction) -> Optional[AnimState]:
         found = None
         for anim in self.anims:
             if itr.idx == anim.itr.idx and term == anim.nod_trm.term:
@@ -409,7 +409,7 @@ class AnimManager:
         #   was a "emergent" term (such as VAR in MATU32)
         #   came from hidden ref
         #assert nod_trm, f"no node term for {term}"
-        if not nod_trm:
+        if nod_trm is None:
             nod_trm = NodeTerm(term)
 
         x = (self.screen.get_width() - self.table['term_width']) // 2
@@ -419,11 +419,7 @@ class AnimManager:
         self.add(anim)
         return anim
 
-    def move(self, anim: AnimState, rect: RefRect, loc: int) -> AnimState:
-        if not rect:
-            Phase.append(anim.phases, 'slide_to_top', 'fade_out')
-            return
-
+    def move(self, anim: AnimState, rect: RefRect, loc: int):
         final_x = term_x_pos(rect, self.table)
         final_y = term_y_pos(rect, loc, self.table)
 
@@ -454,17 +450,21 @@ class AnimManager:
         put_anim = self.find_anim(memop.put, memop.itr)
         # update the dst node state now if the dst ref isn't visible
         # call NodeTerm.set() below *after* slide_out() above as set() updates state
-        if not rect:
+        if rect is None:
             dst_nod_trm = memop.node.get(memop.loc)
             dst_nod_trm.set(memop.put)
-        if not put_anim:
+        if put_anim is None:
             # don't bother manifesting 'emergent' terms that slide to nowhere
-            if not got_anim:
+            if got_anim is None:
                 return
             put_anim = self.manifest(memop.put, memop.itr)
         else:
             put_anim.remove_last_wait_phase()
-        self.move(put_anim, rect, memop.loc)
+
+        if rect is None:
+            Phase.append(anim.phases, 'slide_to_top', 'fade_out')
+        else:
+            self.move(put_anim, rect, memop.loc)
 
     def animate(self, memop: MemOp):
         if memop.is_take():
@@ -482,7 +482,7 @@ class AnimManager:
 
     def update_all(self, now: float):
         all_waiting = True
-        anims: [AnimState] = []
+        anims: list[AnimState] = []
         for anim in self.anims:
             if not self.update_state(anim, now):
                 anims.append(anim)

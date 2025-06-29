@@ -58,19 +58,19 @@ def make_memop(seq: int, parts: list[str]) -> MemOpBase:
         loc = loc
     )
 
-def is_redex_push(mem_op: MemOp) -> bool:
+def is_redex_push(memop: MemOpBase) -> bool:
     # Arbitrary limit here will bite me eventually
     # only works with TPC = 1. more threads means node address may be larger.
     return (
-        mem_op.op == 'STOR' and
-        mem_op.loc > 100000
+        memop.op == 'STOR' and
+        memop.loc > 100000
     )
 
-def is_node_store(mem_op: MemOp) -> bool:
+def is_node_store(memop: MemOpBase) -> bool:
     return (
-        mem_op.op == 'STOR' and
-        (mem_op.is_root_itr() or mem_op.is_appref_itr()) and
-        not is_redex_push(mem_op)
+        memop.op == 'STOR' and
+        (memop.is_root_itr() or memop.is_appref_itr()) and
+        not is_redex_push(memop)
     )
 
 def ref_from_loc(refs: list[ExpandRef], loc: int):
@@ -130,7 +130,7 @@ class RedexBuilder:
             assert key not in self.redex_map
             self.redex_map[key] = redex
 
-    def pop(self, neg_op: MemOp, pos_op: MemOp) -> Redex:
+    def pop(self, neg_op: MemOp, pos_op: MemOp) -> Optional[Redex]:
         # this is basically a way of ignoring ERA~REFs
         if neg_op.got.has_loc() or pos_op.got.has_loc():
             popped = self.redex_map[(neg_op.got, pos_op.got)]
@@ -277,8 +277,8 @@ def parse_memops(file_content: str) -> list[MemOpBase]:
 
     return memops
 
-def make_all(memops: list[MemOpBase]) -> (Term, list[ExpandRef],
-                                          list[Interaction], list[Redex]):
+def make_all(memops: list[MemOpBase]) -> tuple[Term, list[ExpandRef],
+                                          list[Interaction], list[Redex]]:
     term_map: TermMap = {}
     itrs: list[Interaction] = []
     refs: list[ExpandRef] = []
